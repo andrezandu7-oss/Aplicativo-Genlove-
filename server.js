@@ -1994,14 +1994,16 @@ app.get('/', (req, res) => {
                     <span id="selected-language">${t('french')}</span>
                     <span style="font-size: 0.8rem;">▼</span>
                 </button>
-                <div id="language-dropdown" class="language-dropdown">
-                    <a href="/lang/fr" class="dropdown-item">🇫🇷 ${t('french')}</a>
-                    <a href="/lang/en" class="dropdown-item">🇬🇧 ${t('english')}</a>
-                    <a href="/lang/pt" class="dropdown-item">🇵🇹 ${t('portuguese')}</a>
-                    <a href="/lang/es" class="dropdown-item">🇪🇸 ${t('spanish')}</a>
-                    <a href="/lang/ar" class="dropdown-item">🇸🇦 ${t('arabic')}</a>
-                    <a href="/lang/zh" class="dropdown-item">🇨🇳 ${t('chinese')}</a>
-                </div>
+              <div class="language-selector-compact">
+  <select onchange="window.location.href='/signup-qr?lang='+this.value" style="padding:8px 15px; border-radius:30px; border:2px solid #ff416c; background:white; font-size:1rem;">
+    <option value="fr" ${req.lang === 'fr' ? 'selected' : ''}>🇫🇷 ${t('french')}</option>
+    <option value="en" ${req.lang === 'en' ? 'selected' : ''}>🇬🇧 ${t('english')}</option>
+    <option value="pt" ${req.lang === 'pt' ? 'selected' : ''}>🇵🇹 ${t('portuguese')}</option>
+    <option value="es" ${req.lang === 'es' ? 'selected' : ''}>🇪🇸 ${t('spanish')}</option>
+    <option value="ar" ${req.lang === 'ar' ? 'selected' : ''}>🇸🇦 ${t('arabic')}</option>
+    <option value="zh" ${req.lang === 'zh' ? 'selected' : ''}>🇨🇳 ${t('chinese')}</option>
+  </select>
+</div>
             </div>
             
             <div class="logo-container">
