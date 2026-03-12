@@ -4,6 +4,11 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const app = express();
 const port = process.env.PORT || 3000;
+if (req.query.lang && ['fr','en','pt','es','ar','zh'].includes(req.query.lang)) {
+  req.session.lang = req.query.lang;
+  // Optionnel : mettre à jour l'utilisateur si connecté
+  return res.redirect('/signup-qr');
+}
 
 // ========================
 // CONNEXION MONGODB
