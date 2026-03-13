@@ -2229,324 +2229,999 @@ app.get('/signup-choice', (req, res) => {
 });
 
 // ============================================
-// INSCRIPTION PAR CODE QR (AVEC UN SEUL CHAMP NOME COMPLETO)
+// INSCRIPTION PAR CODE QR (AVEC TRADUCTIONS) - CORRIGÉ
 // ============================================
 app.get('/signup-qr', (req, res) => {
-  const t = req.t;
-  
-  res.send(`
+    const t = req.t;
+    
+    res.send(`
 <!DOCTYPE html>
 <html lang="${req.lang}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="https://unpkg.com/html5-qrcode@2.3.8"></script>
-<style>/* ... garder le même style que précédemment ... */</style>
+<style>
+body {
+    margin: 0;
+    padding: 0;
+    font-family: sans-serif;
+    background-color: #f9fafb;
+    color: #111827;
+}
+
+/* Container scrollable */
+.container {
+    max-width: 400px;
+    margin: 0 auto;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+/* QR Scanner carré */
+#reader {
+    width: 70vw;
+    height: 70vw;
+    max-width: 300px;
+    max-height: 300px;
+    margin: 0 auto 20px;
+    border-radius: 15px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    background-color: #ffffff;
+    position: relative;
+    border: 3px solid transparent;
+    transition: border 0.3s ease;
+}
+
+#qr-success {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(16,185,129,0.9);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    display: none;
+}
+
+/* Form Fields */
+input[type="text"], input[type="number"], select {
+    width: 100%;
+    padding: 12px;
+    margin-bottom: 12px;
+    border-radius: 12px;
+    border: 1px solid #d1d5db;
+    font-size: 14px;
+    box-sizing: border-box;
+    transition: background-color 0.5s ease;
+}
+
+/* Style pour les champs en lecture seule */
+input[readonly] {
+    background-color: #f3f4f6;
+    cursor: not-allowed;
+    opacity: 0.9;
+}
+
+/* Photo box avec aperçu */
+.photo-box {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 180px;
+    width: 120px;
+    background-color: #f3f4f6;
+    border: 2px dashed #d1d5db;
+    color: #9ca3af;
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 8px;
+    margin: 0 auto 20px;
+    overflow: hidden;
+    position: relative;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.photo-box.has-image {
+    border: 2px solid #10b981;
+    color: transparent;
+}
+
+.photo-box.has-image::after {
+    content: "✏️";
+    position: absolute;
+    bottom: 5px;
+    right: 5px;
+    background-color: rgba(255,255,255,0.8);
+    border-radius: 50%;
+    padding: 5px;
+    font-size: 12px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.photo-box.has-image:hover::after {
+    opacity: 1;
+}
+
+/* Style pour le titre de la date */
+.date-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 6px;
+    margin-top: 10px;
+}
+
+/* Style pour la date comme inscription manuelle */
+.custom-date-picker {
+    display: flex;
+    gap: 5px;
+    margin: 10px 0;
+}
+
+.date-part {
+    flex: 1;
+    padding: 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 15px;
+    font-size: 0.9rem;
+    background: #f8f9fa;
+}
+
+.date-part:focus {
+    border-color: #ff416c;
+    outline: none;
+}
+
+/* Style pour les erreurs de date */
+.date-error {
+    color: #dc2626;
+    font-size: 12px;
+    margin-top: -8px;
+    margin-bottom: 12px;
+    display: none;
+    text-align: center;
+}
+
+/* Style pour le projet de vie */
+.life-project-container {
+    margin-bottom: 20px;
+}
+
+.life-project-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 8px;
+}
+
+.life-project-options {
+    display: flex;
+    gap: 15px;
+    background-color: #f8f9fa;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid #d1d5db;
+}
+
+.life-project-options label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 15px;
+    cursor: pointer;
+    color: #1a2a44;
+}
+
+.life-project-options input[type="radio"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #db2777;
+    cursor: pointer;
+}
+
+/* Checkbox serment */
+.checkbox-container {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    margin-bottom: 20px;
+}
+
+/* Bouton final */
+button {
+    width: 100%;
+    padding: 16px;
+    border-radius: 25px;
+    border: none;
+    font-weight: bold;
+    font-size: 16px;
+    color: white;
+    background-color: #db2777;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+button:disabled {
+    background-color: #f9a8d4;
+    cursor: not-allowed;
+}
+
+button:not(:disabled):hover {
+    background-color: #be185d;
+}
+
+.section-title {
+    font-weight: bold;
+    font-size: 16px;
+    text-align: center;
+    margin-bottom: 6px;
+    color: #1a2a44;
+}
+
+.sub-text {
+    font-size: 14px;
+    color: #6b7280;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+/* Loader comme inscription manuelle */
+#loader {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    padding: 30px;
+    border-radius: 20px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    z-index: 20000;
+    text-align: center;
+    min-width: 250px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 5px solid #f3f3f3;
+    border-top: 5px solid #ff416c;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.loader-text {
+    color: #1a2a44;
+    font-size: 1.1rem;
+    margin-top: 10px;
+}
+
+/* Sélecteur de langue */
+.language-selector-compact {
+    position: relative;
+    margin: 10px 0 20px;
+    text-align: center;
+}
+
+.lang-btn-compact {
+    background: white;
+    border: 2px solid #ff416c;
+    color: #1a2a44;
+    padding: 10px 20px;
+    border-radius: 30px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.lang-btn-compact:hover {
+    background: #ff416c;
+    color: white;
+}
+
+.language-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+    z-index: 1000;
+    min-width: 180px;
+    margin-top: 5px;
+}
+
+.dropdown-item {
+    display: block;
+    padding: 12px 20px;
+    text-decoration: none;
+    color: #1a2a44;
+    border-bottom: 1px solid #eee;
+    transition: background 0.2s;
+}
+
+.dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.dropdown-item:hover {
+    background: #f8f9fa;
+}
+
+.partition-line {
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #ff416c, transparent);
+    margin: 25px 0 15px 0;
+    opacity: 0.3;
+}
+</style>
 </head>
 <body>
 <div class="container">
-  <!-- Sélecteur de langue simplifié -->
-  <div class="language-selector-compact">
-    <select onchange="window.location.href='/signup-qr?lang='+this.value" style="padding:8px 15px; border-radius:30px; border:2px solid #ff416c; background:white; font-size:1rem;">
-      <option value="fr" ${req.lang === 'fr' ? 'selected' : ''}>🇫🇷 ${t('french')}</option>
-      <option value="en" ${req.lang === 'en' ? 'selected' : ''}>🇬🇧 ${t('english')}</option>
-      <option value="pt" ${req.lang === 'pt' ? 'selected' : ''}>🇵🇹 ${t('portuguese')}</option>
-      <option value="es" ${req.lang === 'es' ? 'selected' : ''}>🇪🇸 ${t('spanish')}</option>
-      <option value="ar" ${req.lang === 'ar' ? 'selected' : ''}>🇸🇦 ${t('arabic')}</option>
-      <option value="zh" ${req.lang === 'zh' ? 'selected' : ''}>🇨🇳 ${t('chinese')}</option>
-    </select>
-  </div>
 
-  <!-- QR Scanner -->
-  <div id="reader" style="position: relative;">
-    <div id="qr-success">${t('qrSuccess') || 'QR scanné !'}</div>
-  </div>
-
-  <!-- Données automatiques du QR -->
-  <div style="margin-bottom: 10px;">
-    <span style="font-size: 12px; color: #10b981; font-weight: bold;">✓ ${t('automaticData')} (${t('certificate')})</span>
-  </div>
-
-  <!-- UN SEUL CHAMP : NOME COMPLETO -->
-  <input type="text" id="nomeCompleto" placeholder="${t('fullName') || 'Nome completo'}" readonly>
-
-  <!-- Les autres champs (genre, génotype, groupe sanguin) -->
-  <input type="text" id="gender" placeholder="${t('gender')}" readonly>
-  <input type="text" id="genotype" placeholder="${t('genotype')}" readonly>
-  <input type="text" id="bloodGroup" placeholder="${t('bloodGroup')}" readonly>
-
-  <div class="partition-line"></div>
-
-  <!-- Partie manuelle (photo, région, date, projet) -->
-  <div class="section-title">${t('sectionTitle')}</div>
-  <div class="sub-text">${t('subText')}</div>
-  <div class="photo-box" id="photoBox"><span id="photoPlaceholder">${t('photoPlaceholder')}</span></div>
-  <input type="text" placeholder="${t('region')}" id="region" required>
-  <div class="date-title">${t('birthDate')}</div>
-  <div class="custom-date-picker">
-    <select id="day" class="date-part" required><option value="">${t('day')}</option>${Array.from({length:31},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}</select>
-    <select id="month" class="date-part" required><option value="">${t('month')}</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}</select>
-    <select id="year" class="date-part" required><option value="">${t('year')}</option>${Array.from({length:101},(_,i)=>{const year = new Date().getFullYear()-18-i; return `<option value="${year}">${year}</option>`;}).join('')}</select>
-  </div>
-  <div id="dateError" class="date-error"></div>
-  <div class="life-project-container">
-    <div class="life-project-title">${t('desireChild')}</div>
-    <div class="life-project-options">
-      <label><input type="radio" name="desireChild" value="Oui" required> ${t('yes')}</label>
-      <label><input type="radio" name="desireChild" value="Non" required> ${t('no')}</label>
+    <!-- Loader comme inscription manuelle -->
+    <div id="loader">
+        <div class="spinner"></div>
+        <div class="loader-text" id="loading-message">${t('sendingRequest') || 'Création de votre profil...'}</div>
     </div>
-  </div>
-  <div class="checkbox-container">
-    <input type="checkbox" id="honorCheckbox" required>
-    <label>${t('honorText')}</label>
-  </div>
-  <button id="submitBtn" disabled><span id="buttonText">${t('createProfile')}</span></button>
+
+    <!-- Sélecteur de langue -->
+    <div class="language-selector-compact">
+        <button onclick="toggleLanguageDropdown()" class="lang-btn-compact">
+            <span>🌐</span>
+            <span id="selected-language">${t('french')}</span>
+            <span style="font-size:0.8rem;">▼</span>
+        </button>
+        <div id="language-dropdown" class="language-dropdown">
+            <a href="/lang/fr" class="dropdown-item">🇫🇷 ${t('french')}</a>
+            <a href="/lang/en" class="dropdown-item">🇬🇧 ${t('english')}</a>
+            <a href="/lang/pt" class="dropdown-item">🇵🇹 ${t('portuguese')}</a>
+            <a href="/lang/es" class="dropdown-item">🇪🇸 ${t('spanish')}</a>
+            <a href="/lang/ar" class="dropdown-item">🇸🇦 ${t('arabic')}</a>
+            <a href="/lang/zh" class="dropdown-item">🇨🇳 ${t('chinese')}</a>
+        </div>
+    </div>
+
+    <!-- QR Scanner -->
+    <div id="reader" style="position: relative;">
+        <div id="qr-success">${t('qrSuccess') || 'QR scanné !'}</div>
+    </div>
+
+    <!-- PREMIÈRE PARTIE : Remplissage automatique QR -->
+    <div style="margin-bottom: 10px;">
+        <span style="font-size: 12px; color: #10b981; font-weight: bold;">✓ ${t('automaticData')} (${t('certificate')})</span>
+    </div>
+    
+    <input type="text" placeholder="${t('firstName')}" id="firstName" readonly>
+    <input type="text" placeholder="${t('lastName')}" id="lastName" readonly>
+    <input type="text" placeholder="${t('gender')}" id="gender" readonly>
+    <input type="text" placeholder="${t('genotype')}" id="genotype" readonly>
+    <input type="text" placeholder="${t('bloodGroup')}" id="bloodGroup" readonly>
+
+    <!-- Séparateur visuel -->
+    <div class="partition-line"></div>
+
+    <!-- DEUXIÈME PARTIE : Saisie manuelle -->
+    <div class="section-title">${t('sectionTitle')}</div>
+    <div class="sub-text">${t('subText')}</div>
+
+    <!-- Photo box -->
+    <div class="photo-box" id="photoBox">
+        <span id="photoPlaceholder">${t('photoPlaceholder')}</span>
+    </div>
+    
+    <!-- Région -->
+    <input type="text" placeholder="${t('region')}" id="region" required>
+
+    <!-- Date de naissance avec sélecteurs (comme inscription manuelle) -->
+    <div class="date-title">📅 ${t('birthDate')}</div>
+    
+    <div class="custom-date-picker">
+        <select id="day" class="date-part" required>
+            <option value="">${t('day')}</option>
+            ${Array.from({length: 31}, (_, i) => `<option value="${i+1}">${i+1}</option>`).join('')}
+        </select>
+        <select id="month" class="date-part" required>
+            <option value="">${t('month')}</option>
+            ${Array.from({length: 12}, (_, i) => `<option value="${i+1}">${i+1}</option>`).join('')}
+        </select>
+        <select id="year" class="date-part" required>
+            <option value="">${t('year')}</option>
+            ${Array.from({length: 101}, (_, i) => {
+                const year = new Date().getFullYear() - 18 - i;
+                return `<option value="${year}">${year}</option>`;
+            }).join('')}
+        </select>
+    </div>
+    <div id="dateError" class="date-error">Date invalide</div>
+
+    <!-- Projet de vie (Désir d'enfant) -->
+    <div class="life-project-container">
+        <div class="life-project-title">👶 ${t('desireChild')}</div>
+        <div class="life-project-options">
+            <label>
+                <input type="radio" name="desireChild" value="Oui" required> ${t('yes')}
+            </label>
+            <label>
+                <input type="radio" name="desireChild" value="Non" required> ${t('no')}
+            </label>
+        </div>
+    </div>
+
+    <!-- Serment -->
+    <div class="checkbox-container">
+        <input type="checkbox" id="honorCheckbox" required>
+        <label>${t('honorText')}</label>
+    </div>
+
+    <!-- Bouton de validation -->
+    <button id="submitBtn" disabled>
+        <span id="buttonText">${t('createProfile')}</span>
+    </button>
+
 </div>
 
 <script>
-// (les fonctions de caméra et de validation restent identiques, mais on adapte le remplissage QR)
+// Fonction pour le sélecteur de langue
+function toggleLanguageDropdown() {
+    const dropdown = document.getElementById('language-dropdown');
+    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+}
+
+document.addEventListener('click', function(event) {
+    const dropdown = document.getElementById('language-dropdown');
+    const button = event.target.closest('.lang-btn-compact');
+    if (!button && dropdown.style.display === 'block') {
+        dropdown.style.display = 'none';
+    }
+});
+
+document.querySelectorAll('.dropdown-item').forEach(item => {
+    item.addEventListener('click', function(e) {
+        const langText = this.innerText.replace(/[🇫🇷🇬🇧🇵🇹🇪🇸🇸🇦🇨🇳]/g, '').trim();
+        document.getElementById('selected-language').innerText = langText;
+    });
+});
+
+const html5QrCode = new Html5Qrcode("reader");
 let hasScanned = false;
 let scanTimeout = null;
-const html5QrCode = new Html5Qrcode("reader");
+let selectedPhotoFile = null;
 
-async function startRearCamera() { /* ... même code ... */ }
+async function startRearCamera() {
+    try {
+        const devices = await Html5Qrcode.getCameras();
+        if (!devices || devices.length === 0) {
+            console.error("Aucune caméra trouvée");
+            return;
+        }
+        
+        let rearCamera = devices.find(d => 
+            d.label.toLowerCase().includes("back") || 
+            d.label.toLowerCase().includes("rear") || 
+            d.label.toLowerCase().includes("environment") ||
+            d.label.toLowerCase().includes("arrière")
+        );
+        
+        if (!rearCamera) rearCamera = devices[devices.length - 1];
 
-const qrCodeSuccessCallback = (decodedText, decodedResult) => {
-  if (hasScanned) return;
-  clearTimeout(scanTimeout);
-  hasScanned = true;
-  html5QrCode.stop().catch(console.log);
-  const data = decodedText.trim().split("|");
-  if (data.length >= 5) {
-    // Format attendu : Prénom|Nom|Genre|Génotype|Groupe sanguin
-    const nomeCompleto = data[0].trim() + " " + data[1].trim();
-    document.getElementById('nomeCompleto').value = nomeCompleto;
-    document.getElementById('nomeCompleto').style.backgroundColor = "#d1fae5";
-    setTimeout(() => document.getElementById('nomeCompleto').style.backgroundColor = "#f3f4f6", 1000);
-    
-    let genero = data[2].trim();
-    if (genero === 'M') genero = 'Homme';
-    else if (genero === 'F') genero = 'Femme';
-    document.getElementById('gender').value = genero;
-    document.getElementById('genotype').value = data[3].trim();
-    document.getElementById('bloodGroup').value = data[4].trim();
-    // effets visuels...
-    document.getElementById('reader').style.border = "3px solid #10b981";
-    document.getElementById('qr-success').style.display = "block";
-    scanTimeout = setTimeout(() => {
-      document.getElementById('reader').style.border = "3px solid transparent";
-      document.getElementById('qr-success').style.display = "none";
-      hasScanned = false;
-      startRearCamera();
-    }, 3000);
-    checkFormValidity();
-  } else {
-    alert("Format de QR code invalide");
-    setTimeout(() => { hasScanned = false; startRearCamera(); }, 3000);
-  }
-};
+        const qrCodeSuccessCallback = (decodedText, decodedResult) => {
+            if (hasScanned) return;
+            
+            if (scanTimeout) {
+                clearTimeout(scanTimeout);
+            }
+            
+            hasScanned = true;
+            html5QrCode.stop().catch(err => console.log(err));
+            
+            const data = decodedText.trim().split('|');
+            console.log("Données scannées:", data);
+            
+            // FORMAT: Prénom|Nom|Genre|Génotype|Groupe sanguin
+            if(data.length >= 5) {
+                const fieldConfigs = [
+                    { id: 'firstName', label: '${t('firstName')}' },
+                    { id: 'lastName', label: '${t('lastName')}' },
+                    { id: 'gender', label: '${t('gender')}' },
+                    { id: 'genotype', label: '${t('genotype')}' },
+                    { id: 'bloodGroup', label: '${t('bloodGroup')}' }
+                ];
+                
+                fieldConfigs.forEach((config, i) => {
+                    const el = document.getElementById(config.id);
+                    if (el && data[i]) {
+                        el.value = config.label + " : " + data[i].trim();
+                        el.style.backgroundColor = "#d1fae5";
+                        setTimeout(() => { 
+                            el.style.backgroundColor = "#f3f4f6";
+                        }, 1000);
+                    }
+                });
+            }
 
-// Fonction de validation (inchangée sauf qu'on utilise nomeCompleto)
-function checkFormValidity() {
-  let desireChildSelected = [...document.querySelectorAll('input[name="desireChild"]')].some(r => r.checked);
-  const allFieldsFilled = 
-    document.getElementById('nomeCompleto').value.trim() !== '' &&
-    document.getElementById('gender').value.trim() !== '' &&
-    document.getElementById('genotype').value.trim() !== '' &&
-    document.getElementById('bloodGroup').value.trim() !== '' &&
-    document.getElementById('region').value.trim() !== '' &&
-    document.getElementById('day').value !== '' &&
-    document.getElementById('month').value !== '' &&
-    document.getElementById('year').value !== '' &&
-    desireChildSelected &&
-    document.getElementById('honorCheckbox').checked;
-  document.getElementById('submitBtn').disabled = !allFieldsFilled;
+            const readerDiv = document.getElementById('reader');
+            const successDiv = document.getElementById('qr-success');
+            readerDiv.style.border = "3px solid #10b981";
+            successDiv.style.display = "block";
+            
+            scanTimeout = setTimeout(() => { 
+                readerDiv.style.border = "3px solid transparent"; 
+                successDiv.style.display = "none";
+                hasScanned = false;
+                startRearCamera();
+            }, 3000);
+            
+            checkFormValidity();
+        };
+
+        const qrCodeErrorCallback = (error) => {
+            if (!error.includes("NotFoundException")) {
+                console.log("Erreur de scan:", error);
+            }
+        };
+
+        const config = {
+            fps: 10,
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: 1.0,
+            videoConstraints: { 
+                width: { min: 640, ideal: 720, max: 1080 },
+                height: { min: 640, ideal: 720, max: 1080 },
+                facingMode: "environment"
+            }
+        };
+
+        await html5QrCode.start(rearCamera.id, config, qrCodeSuccessCallback, qrCodeErrorCallback);
+        
+    } catch(e) {
+        console.error("Erreur lors du démarrage de la caméra:", e);
+    }
 }
 
-// Soumission (on sépare le nomeCompleto en firstName et lastName)
-document.getElementById('submitBtn').addEventListener('click', async function() {
-  // ... désactiver et afficher loader
-  const nomeCompleto = document.getElementById('nomeCompleto').value.trim();
-  const parts = nomeCompleto.split(' ');
-  const firstName = parts[0];
-  const lastName = parts.slice(1).join(' ') || '';
-  const userData = {
-    firstName,
-    lastName,
-    gender: document.getElementById('gender').value,
-    genotype: document.getElementById('genotype').value,
-    bloodGroup: document.getElementById('bloodGroup').value,
-    region: document.getElementById('region').value,
-    residence: document.getElementById('region').value,
-    dob: year + '-' + month.padStart(2,'0') + '-' + day.padStart(2,'0'),
-    desireChild: document.querySelector('input[name="desireChild"]:checked').value,
-    photo: selectedPhotoFile ? await fileToBase64(selectedPhotoFile) : "",
-    language: '${req.lang}',
-    isPublic: true,
-    qrVerified: true,
-    verificationBadge: 'lab'
-  };
-  // envoi fetch...
-});
-</script>
-</body></html>
-  `);
+startRearCamera();
+
+const submitBtn = document.getElementById('submitBtn');
+const regionInput = document.getElementById('region');
+const dayInput = document.getElementById('day');
+const monthInput = document.getElementById('month');
+const yearInput = document.getElementById('year');
+const dateError = document.getElementById('dateError');
+const desireChildRadios = document.getElementsByName('desireChild');
+const honorCheckbox = document.getElementById('honorCheckbox');
+const firstNameInput = document.getElementById('firstName');
+const lastNameInput = document.getElementById('lastName');
+const genderInput = document.getElementById('gender');
+const genotypeInput = document.getElementById('genotype');
+const bloodGroupInput = document.getElementById('bloodGroup');
+const photoBox = document.getElementById('photoBox');
+const photoPlaceholder = document.getElementById('photoPlaceholder');
+const loader = document.getElementById('loader');
+const loadingMessage = document.getElementById('loading-message');
+const buttonText = document.getElementById('buttonText');
+
+// Fonction pour obtenir le nombre maximum de jours dans un mois
+function getMaxDays(month, year) {
+    if (!month || !year) return 31;
+    const m = parseInt(month);
+    const y = parseInt(year);
+    
+    if ([1, 3, 5, 7, 8, 10, 12].includes(m)) return 31;
+    if ([4, 6, 9, 11].includes(m)) return 30;
+    if (m === 2) {
+        if ((y % 4 === 0 && y % 100 !== 0) || y % 400 === 0) return 29;
+        return 28;
+    }
+    return 31;
+}
+
+// Validation de la date
+function validateDate() {
+    const day = dayInput.value;
+    const month = monthInput.value;
+    const year = yearInput.value;
+    
+    if (day && month && year) {
+        const maxDays = getMaxDays(month, year);
+        if (parseInt(day) > maxDays) {
+            dayInput.value = maxDays;
+            dateError.style.display = 'block';
+            dateError.textContent = 'Le mois ' + month + ' ne peut pas avoir plus de ' + maxDays + ' jours';
+            setTimeout(() => dateError.style.display = 'none', 3000);
+        }
+    }
+    checkFormValidity();
+}
+
+dayInput.addEventListener('change', validateDate);
+monthInput.addEventListener('change', validateDate);
+yearInput.addEventListener('change', validateDate);
+
+function extractValueFromPrefixed(input) {
+    const value = input.value;
+    const colonIndex = value.indexOf(':');
+    if (colonIndex !== -1) {
+        return value.substring(colonIndex + 1).trim();
+    }
+    return value;
+}
+
+function checkFormValidity() {
+    let desireChildSelected = false;
+    for (let radio of desireChildRadios) {
+        if (radio.checked) {
+            desireChildSelected = true;
+            break;
+        }
+    }
+    
+    const firstNameValue = extractValueFromPrefixed(firstNameInput);
+    const lastNameValue = extractValueFromPrefixed(lastNameInput);
+    const genderValue = extractValueFromPrefixed(genderInput);
+    const genotypeValue = extractValueFromPrefixed(genotypeInput);
+    const bloodGroupValue = extractValueFromPrefixed(bloodGroupInput);
+    
+    const allFieldsFilled = 
+        firstNameValue !== "" &&
+        lastNameValue !== "" &&
+        genderValue !== "" &&
+        genotypeValue !== "" &&
+        bloodGroupValue !== "" &&
+        regionInput.value.trim() !== "" && 
+        dayInput.value !== "" && 
+        monthInput.value !== "" && 
+        yearInput.value !== "" && 
+        desireChildSelected &&
+        honorCheckbox.checked;
+    
+    submitBtn.disabled = !allFieldsFilled;
+}
+
+[regionInput, dayInput, monthInput, yearInput].forEach(input => {
+    input.addEventListener('change', checkFormValidity);
 });
 
+for (let radio of desireChildRadios) {
+    radio.addEventListener('change', checkFormValidity);
+}
+
+honorCheckbox.addEventListener('change', checkFormValidity);
+
+checkFormValidity();
+
+photoBox.addEventListener('click', ()=>{
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.onchange = e => {
+        if(e.target.files.length > 0) {
+            selectedPhotoFile = e.target.files[0];
+            const reader = new FileReader();
+            
+            reader.onload = function(event) {
+                photoBox.style.backgroundImage = "url('" + event.target.result + "')";
+                photoBox.classList.add('has-image');
+                photoPlaceholder.style.display = 'none';
+            };
+            
+            reader.readAsDataURL(selectedPhotoFile);
+        }
+    };
+    fileInput.click();
+});
+
+// Fonction de validation avec loader comme inscription manuelle
+submitBtn.addEventListener('click', async function() {
+    submitBtn.disabled = true;
+    loader.style.display = 'flex';
+    loadingMessage.innerText = '${t('sendingRequest') || 'Création de votre profil...'}';
+    
+    try {
+        const day = dayInput.value;
+        const month = monthInput.value;
+        const year = yearInput.value;
+        
+        if (!day || !month || !year) {
+            alert("${t('dob')} ${t('required')}");
+            loader.style.display = 'none';
+            submitBtn.disabled = false;
+            return;
+        }
+        
+        const maxDays = getMaxDays(month, year);
+        if (parseInt(day) > maxDays) {
+            alert("Date invalide : le mois " + month + " n'a que " + maxDays + " jours");
+            loader.style.display = 'none';
+            submitBtn.disabled = false;
+            return;
+        }
+        
+        let desireChildValue = '';
+        for (let radio of desireChildRadios) {
+            if (radio.checked) {
+                desireChildValue = radio.value;
+                break;
+            }
+        }
+        
+        const dob = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
+        
+        const userData = {
+            firstName: extractValueFromPrefixed(firstNameInput),
+            lastName: extractValueFromPrefixed(lastNameInput),
+            gender: extractValueFromPrefixed(genderInput),
+            genotype: extractValueFromPrefixed(genotypeInput),
+            bloodGroup: extractValueFromPrefixed(bloodGroupInput),
+            region: regionInput.value,
+            residence: regionInput.value,
+            dob: dob,
+            desireChild: desireChildValue,
+            photo: selectedPhotoFile ? await fileToBase64(selectedPhotoFile) : "",
+            language: '${req.lang}',
+            isPublic: true,
+            qrVerified: true,
+            verificationBadge: 'lab'
+        };
+        
+        const res = await fetch('/api/register', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(userData)
+        });
+        
+        const data = await res.json();
+        
+        setTimeout(() => {
+            loader.style.display = 'none';
+            if (data.success) {
+                window.location.href = '/profile';
+            } else {
+                alert("Erreur lors de l'inscription: " + (data.error || "Inconnue"));
+                submitBtn.disabled = false;
+            }
+        }, 1500);
+        
+    } catch (error) {
+        console.error("Erreur lors de la validation:", error);
+        loader.style.display = 'none';
+        alert("Erreur de connexion au serveur");
+        submitBtn.disabled = false;
+    }
+});
+
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = error => reject(error);
+    });
+}
+
+window.addEventListener('beforeunload', () => {
+    if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().catch(err => console.log(err));
+    }
+    if (scanTimeout) {
+        clearTimeout(scanTimeout);
+    }
+});
+</script>
+</body>
+</html>
+`);
+});
 // ============================================
-// INSCRIPTION MANUELLE (également modifiée pour un seul champ "Nome completo")
+// INSCRIPTION MANUELLE
 // ============================================
 app.get('/signup-manual', (req, res) => {
-  const t = req.t;
-  const datePicker = generateDateOptions(req);
-  
-  res.send(`
-<!DOCTYPE html>
+    const t = req.t;
+    const datePicker = generateDateOptions(req);
+    
+    res.send(`<!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-  <title>${t('appName')} - ${t('signupTitle')}</title>
-  ${styles}
-  ${notifyScript}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - ${t('signupTitle')}</title>
+    ${styles}
+    ${notifyScript}
 </head>
 <body>
-<div class="app-shell">
-  <div id="loader"><div class="spinner"></div><h3>${t('sendingRequest')}</h3></div>
-  <div class="page-white">
-    <h2 style="color:#ff416c;">${t('signupTitle')}</h2>
-    <p style="font-size:1.2rem; margin-bottom:20px;">${t('signupSub')}</p>
-    <div class="info-message"><span class="info-icon">📍</span><p>${t('locationHelp')}</p></div>
-    <form id="signupForm">
-      <div class="photo-circle" id="photoCircle" onclick="document.getElementById('photoInput').click()">
-        <span id="photoText">📷</span>
-      </div>
-      <input type="file" id="photoInput" style="display:none" onchange="previewPhoto(event)" accept="image/*">
-
-      <!-- UN SEUL CHAMP POUR LE NOM COMPLET -->
-      <div class="input-label">${t('fullName') || 'Nome completo'}</div>
-      <input type="text" id="fullName" class="input-box" placeholder="${t('fullName') || 'Nome completo'}" required>
-
-      <div class="input-label">${t('gender')}</div>
-      <select id="gender" class="input-box" required>
-        <option value="">${t('gender')}</option>
-        <option value="Homme">${t('male')}</option>
-        <option value="Femme">${t('female')}</option>
-      </select>
-
-      <div class="input-label">${t('dob')}</div>
-      ${datePicker}
-
-      <div class="input-label">${t('city')}</div>
-      <input type="text" id="residence" class="input-box" placeholder="${t('city')}" required>
-      <div class="input-label">${t('region')}</div>
-      <input type="text" id="region" class="input-box" placeholder="${t('region')}" required>
-
-      <div class="input-label">${t('genotype')}</div>
-      <select id="genotype" class="input-box" required>
-        <option value=""></option>
-        <option value="AA">AA</option>
-        <option value="AS">AS</option>
-        <option value="SS">SS</option>
-      </select>
-
-      <div style="display:flex; gap:10px;">
-        <select id="bloodType" class="input-box" style="flex:2;" required>
-          <option value=""></option>
-          <option value="A">A</option>
-          <option value="B">B</option>
-          <option value="AB">AB</option>
-          <option value="O">O</option>
-        </select>
-        <select id="bloodRh" class="input-box" style="flex:1;" required>
-          <option value="+">+</option>
-          <option value="-">-</option>
-        </select>
-      </div>
-
-      <div class="input-label">${t('desireChild')}</div>
-      <select id="desireChild" class="input-box" required>
-        <option value=""></option>
-        <option value="Oui">${t('yes')}</option>
-        <option value="Non">${t('no')}</option>
-      </select>
-
-      <input type="hidden" id="qrVerified" value="false">
-
-      <div class="serment-container">
-        <input type="checkbox" id="oath" style="width:20px;height:20px;" required>
-        <label for="oath" class="serment-text">${t('honorText')}</label>
-      </div>
-
-      <button type="submit" class="btn-pink">${t('createProfile')}</button>
-    </form>
-    <div style="text-align:center; margin:20px 0;">
-      <a href="/signup-qr" class="back-link">📱 ${t('withCertificate')}</a>
+    <div class="app-shell">
+        <div id="loader">
+            <div class="spinner"></div>
+            <h3>Analyse sécurisée...</h3>
+            <p>Vérification de vos données médicales.</p>
+        </div>
+        <div class="page-white">
+            <h2 style="color:#ff416c;">${t('signupTitle')}</h2>
+            <p style="font-size: 1.2rem; margin-bottom: 20px;">${t('signupSub')}</p>
+            
+            <!-- MESSAGE D'AIDE -->
+            <div class="info-message">
+                <span class="info-icon">📍</span>
+                <p>${t('locationHelp')}</p>
+            </div>
+            
+            <form id="signupForm">
+                <div class="photo-circle" id="photoCircle" onclick="document.getElementById('photoInput').click()">
+                    <span id="photoText">📷 Photo</span>
+                </div>
+                <input type="file" id="photoInput" style="display:none" onchange="previewPhoto(event)" accept="image/*">
+                
+                <div class="input-label">${t('firstName')}</div>
+                <input type="text" id="firstName" class="input-box" placeholder="${t('firstName')}" required>
+                
+                <div class="input-label">${t('lastName')}</div>
+                <input type="text" id="lastName" class="input-box" placeholder="${t('lastName')}" required>
+                
+                <div class="input-label">${t('gender')}</div>
+                <select id="gender" class="input-box" required>
+                    <option value="">${t('gender')}</option>
+                    <option value="Homme">${t('male')}</option>
+                    <option value="Femme">${t('female')}</option>
+                </select>
+                
+                <div class="input-label">${t('dob')}</div>
+                ${datePicker}
+                
+                <div class="input-label">${t('city')}</div>
+                <input type="text" id="residence" class="input-box" placeholder="${t('city')}" required>
+                
+                <div class="input-label">${t('region')}</div>
+                <input type="text" id="region" class="input-box" placeholder="${t('region')}" required>
+                
+                <div class="input-label">${t('genotype')}</div>
+                <select id="genotype" class="input-box" required>
+                    <option value="">${t('genotype')}</option>
+                    <option value="AA">AA</option>
+                    <option value="AS">AS</option>
+                    <option value="SS">SS</option>
+                </select>
+                
+                <div style="display:flex; gap:10px;">
+                    <select id="bloodType" class="input-box" style="flex:2;" required>
+                        <option value="">${t('bloodGroup')}</option>
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                        <option value="AB">AB</option>
+                        <option value="O">O</option>
+                    </select>
+                    <select id="bloodRh" class="input-box" style="flex:1;" required>
+                        <option value="+">+</option>
+                        <option value="-">-</option>
+                    </select>
+                </div>
+                
+                <div class="input-label">${t('desireChild')}</div>
+                <select id="desireChild" class="input-box" required>
+                    <option value="">${t('desireChild')}</option>
+                    <option value="Oui">${t('yes')}</option>
+                    <option value="Non">${t('no')}</option>
+                </select>
+                
+                <input type="hidden" id="qrVerified" value="false">
+                
+                <div class="serment-container">
+                    <input type="checkbox" id="oath" style="width:20px;height:20px;" required>
+                    <label for="oath" class="serment-text">${t('honorText')}</label>
+                </div>
+                
+                <button type="submit" class="btn-pink">${t('createProfile')}</button>
+            </form>
+            
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="/signup-qr" class="back-link">📱 ${t('withCertificate')}</a>
+            </div>
+            
+            <a href="/signup-choice" class="back-link">← ${t('backCharter')}</a>
+        </div>
     </div>
-    <a href="/signup-choice" class="back-link">← ${t('backCharter')}</a>
-  </div>
-</div>
-<script>
-let photoBase64 = "";
-function previewPhoto(e) {
-  const reader = new FileReader();
-  reader.onload = function() {
-    photoBase64 = reader.result;
-    document.getElementById('photoCircle').style.backgroundImage = 'url(' + photoBase64 + ')';
-    document.getElementById('photoCircle').style.backgroundSize = 'cover';
-    document.getElementById('photoText').style.display = 'none';
-  };
-  reader.readAsDataURL(e.target.files[0]);
-}
-document.getElementById('signupForm').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  document.getElementById('loader').style.display = 'flex';
-  const day = document.querySelector('select[name="day"]').value;
-  const month = document.querySelector('select[name="month"]').value;
-  const year = document.querySelector('select[name="year"]').value;
-  if (!day || !month || !year) { alert('${t('dob')} ${t('required')}'); document.getElementById('loader').style.display = 'none'; return; }
-  const dob = year + '-' + month.padStart(2,'0') + '-' + day.padStart(2,'0');
-  const fullName = document.getElementById('fullName').value.trim();
-  const parts = fullName.split(' ');
-  const firstName = parts[0];
-  const lastName = parts.slice(1).join(' ') || '';
-  const userData = {
-    firstName,
-    lastName,
-    gender: document.getElementById('gender').value,
-    dob,
-    residence: document.getElementById('residence').value,
-    region: document.getElementById('region').value,
-    genotype: document.getElementById('genotype').value,
-    bloodGroup: document.getElementById('bloodType').value + document.getElementById('bloodRh').value,
-    desireChild: document.getElementById('desireChild').value,
-    photo: photoBase64,
-    language: '${req.lang}',
-    isPublic: true,
-    qrVerified: false,
-    verificationBadge: 'self'
-  };
-  try {
-    const res = await fetch('/api/register', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(userData)
-    });
-    const data = await res.json();
-    setTimeout(() => {
-      document.getElementById('loader').style.display = 'none';
-      if (data.success) window.location.href = '/profile';
-      else alert("Erreur: " + (data.error || "Inconnue"));
-    }, 2000);
-  } catch(e) {
-    document.getElementById('loader').style.display = 'none';
-    alert("Erreur de connexion");
-  }
+    
+    <script>
+        let photoBase64 = "";
+        
+        window.onload = function() {
+            document.getElementById('photoCircle').style.backgroundImage = '';
+            document.getElementById('photoText').style.display = 'block';
+        };
+        
+        function previewPhoto(e) {
+            const reader = new FileReader();
+            reader.onload = function() {
+                photoBase64 = reader.result;
+                document.getElementById('photoCircle').style.backgroundImage = 'url(' + photoBase64 + ')';
+                document.getElementById('photoCircle').style.backgroundSize = 'cover';
+                document.getElementById('photoText').style.display = 'none';
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        }
+        
+        document.getElementById('signupForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            document.getElementById('loader').style.display = 'flex';
+            
+            const day = document.querySelector('select[name="day"]').value;
+            const month = document.querySelector('select[name="month"]').value;
+            const year = document.querySelector('select[name="year"]').value;
+            
+            if (!day || !month || !year) {
+                alert('${t('dob')} ${t('required')}');
+                document.getElementById('loader').style.display = 'none';
+                return;
+            }
+            
+            const dob = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
+            
+            const userData = {
+                firstName: document.getElementById('firstName').value,
+                lastName: document.getElementById('lastName').value,
+                gender: document.getElementById('gender').value,
+                dob: dob,
+                residence: document.getElementById('residence').value,
+                region: document.getElementById('region').value,
+                genotype: document.getElementById('genotype').value,
+                bloodGroup: document.getElementById('bloodType').value + document.getElementById('bloodRh').value,
+                desireChild: document.getElementById('desireChild').value,
+                photo: photoBase64 || "",
+                language: '${req.lang}',
+                isPublic: true,
+                qrVerified: false,
+                verificationBadge: 'self'
+            };
+            
+            try {
+                const res = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(userData)
+                });
+                
+                const data = await res.json();
+                
+                setTimeout(() => {
+                    document.getElementById('loader').style.display = 'none';
+                    if (data.success) {
+                        window.location.href = '/profile';
+                    } else {
+                        alert("Erreur lors de l'inscription: " + (data.error || "Inconnue"));
+                    }
+                }, 2000);
+            } catch(error) {
+                document.getElementById('loader').style.display = 'none';
+                alert("Erreur de connexion au serveur");
+            }
+        });
+    </script>
+</body>
+</html>`);
 });
-</script>
-</body></html>
-  `);
-});
+
 // ============================================
 // PROFIL - VERSION CORRIGÉE (redirection vers inbox)
 // ============================================
