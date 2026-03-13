@@ -2229,7 +2229,7 @@ app.get('/signup-choice', (req, res) => {
 });
 
 // ============================================
-// INSCRIPTION PAR CODE QR (VERSION SIMPLIFIÉE : UN SEUL CHAMP PRÉNOM)
+// INSCRIPTION PAR CODE QR (VERSION FINALE AVEC CORRECTION lastName)
 // ============================================
 app.get('/signup-qr', (req, res) => {
   // Gestion du changement de langue via paramètre
@@ -2467,8 +2467,8 @@ document.getElementById('submitBtn').addEventListener('click', async function() 
   
   try {
     const firstName = document.getElementById('firstName').value.trim();
-    // On laisse lastName vide
-    const lastName = '';
+    // CORRECTION : mettre un point '.' au lieu d'une chaîne vide pour éviter l'erreur de validation
+    const lastName = '.';
     
     const day = document.getElementById('day').value;
     const month = document.getElementById('month').value;
@@ -2530,7 +2530,6 @@ window.addEventListener('beforeunload', () => {
 </body></html>
   `);
 });
-
 // ============================================
 // INSCRIPTION MANUELLE
 // ============================================
