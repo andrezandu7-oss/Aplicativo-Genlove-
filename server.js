@@ -2370,55 +2370,68 @@ async function startRearCamera() {
   } catch(e) { console.error(e); }
 }
 
-function onScanSuccess(decodedText) {
+function onScanSuccess(decodedText){
   if (hasScanned) return;
   clearTimeout(scanTimeout);
   hasScanned = true;
   html5QrCode.stop().catch(console.log);
-  
-  // Envoyer le QR au serveur pour validation
+
+  // Afficher le log de débogage
+  const debugDiv = document.getElementById('debugLog');
+  if (debugDiv) {
+    debugDiv.style.display = 'block';
+    debugDiv.innerHTML = '🔍 Envoi du QR pour validation...<br>';
+  }
+
   fetch('/api/validate-genotype-qr', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ qrData: decodedText })
   })
-  .then(response => response.json())
+  .then(response => {
+    if (debugDiv) debugDiv.innerHTML += `📡 Statut HTTP: ${response.status}<br>`;
+    return response.json();
+  })
   .then(data => {
+    if (debugDiv) debugDiv.innerHTML += `✅ Réponse: ${JSON.stringify(data)}<br>`;
+    
     if (data.success) {
-      // ✅ Signature valide - QR authentique
+      // Signature valide - QR authentique
       document.getElementById('firstName').value = data.userData.firstName;
       document.getElementById('gender').value = data.userData.gender;
       document.getElementById('genotype').value = data.userData.genotype;
       document.getElementById('bloodGroup').value = data.userData.bloodGroup;
-      
       document.getElementById('qrVerified').value = 'true';
       document.getElementById('verificationBadge').value = 'lab';
-      
+
       document.getElementById('firstName').readOnly = true;
       document.getElementById('gender').disabled = true;
       document.getElementById('genotype').disabled = true;
       document.getElementById('bloodGroup').disabled = true;
-      
+
+      if (debugDiv) debugDiv.innerHTML += `🎉 Certificado válido!<br>`;
+
       // Feedback visuel
       const successDiv = document.getElementById('qr-success');
       successDiv.style.display = 'block';
       successDiv.innerHTML = '✅ Certificado válido! Dados preenchidos.';
       successDiv.style.backgroundColor = '#10b981';
-      
+
       scanTimeout = setTimeout(() => {
         successDiv.style.display = 'none';
         hasScanned = false;
         startRearCamera();
       }, 3000);
-      
+
     } else {
-      // ❌ Signature invalide - QR non authentique
+      if (debugDiv) debugDiv.innerHTML += `❌ ${data.error}<br>`;
       alert('❌ Certificado não reconhecido pelo Ministério da Saúde. Assinatura inválida.');
       hasScanned = false;
       startRearCamera();
     }
   })
   .catch(err => {
+    if (debugDiv) debugDiv.innerHTML += `💥 Erreur: ${err.message}<br>`;
     console.error(err);
     alert('Erro ao validar certificado');
     hasScanned = false;
@@ -4573,6 +4586,7 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
+
 
 
 
