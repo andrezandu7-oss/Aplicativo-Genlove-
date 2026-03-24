@@ -2376,27 +2376,14 @@ function onScanSuccess(decodedText){
   hasScanned = true;
   html5QrCode.stop().catch(console.log);
 
-  // Afficher le log de débogage
-  const debugDiv = document.getElementById('debugLog');
-  if (debugDiv) {
-    debugDiv.style.display = 'block';
-    debugDiv.innerHTML = '🔍 Envoi du QR pour validation...<br>';
-  }
-
   fetch('/api/validate-genotype-qr', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ qrData: decodedText })
   })
-  .then(response => {
-    if (debugDiv) debugDiv.innerHTML += `📡 Statut HTTP: ${response.status}<br>`;
-    return response.json();
-  })
+  .then(response => response.json())
   .then(data => {
-    if (debugDiv) debugDiv.innerHTML += `✅ Réponse: ${JSON.stringify(data)}<br>`;
-    
     if (data.success) {
-      // Signature valide - QR authentique
       document.getElementById('firstName').value = data.userData.firstName;
       document.getElementById('gender').value = data.userData.gender;
       document.getElementById('genotype').value = data.userData.genotype;
@@ -2409,9 +2396,6 @@ function onScanSuccess(decodedText){
       document.getElementById('genotype').disabled = true;
       document.getElementById('bloodGroup').disabled = true;
 
-      if (debugDiv) debugDiv.innerHTML += `🎉 Certificado válido!<br>`;
-
-      // Feedback visuel
       const successDiv = document.getElementById('qr-success');
       successDiv.style.display = 'block';
       successDiv.innerHTML = '✅ Certificado válido! Dados preenchidos.';
@@ -2424,14 +2408,12 @@ function onScanSuccess(decodedText){
       }, 3000);
 
     } else {
-      if (debugDiv) debugDiv.innerHTML += `❌ ${data.error}<br>`;
-      alert('❌ Certificado não reconhecido pelo Ministério da Saúde. Assinatura inválida.');
+      alert('❌ Certificado não reconhecido.');
       hasScanned = false;
       startRearCamera();
     }
   })
   .catch(err => {
-    if (debugDiv) debugDiv.innerHTML += `💥 Erreur: ${err.message}<br>`;
     console.error(err);
     alert('Erro ao validar certificado');
     hasScanned = false;
@@ -4586,7 +4568,6 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
-
 
 
 
