@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const app = express();
+
 console.log("🚀 Serveur en cours de démarrage...");
 const port = process.env.PORT || 3000;
 
@@ -10,22 +11,23 @@ const port = process.env.PORT || 3000;
 const mongouRI = process.env.MONGODB_URI || 'mongodb://localhost:27017/genlove';
 
 mongoose.connect(mongouRI)
-  .then(() => console.log("✅ Conectado ao MongoDB para Genlove!"))
-  .catch(err => console.error("❌ Erro de conexão MongoDB:", err));
+  .then(() => console.log('✅ Conectado ao MongoDB para Genlove!'))
+  .catch(err => console.error('❌ Erro de conexão MongoDB:', err));
 
 // ====================== ASSINATURA SECRETA ======================
-// Assinatura secreta do ministério (deve estar sincronizada com o ministério)
 const SECRET_SIGNATURE = "SNS-Angola-2026";
-// ================================================================
 
 // ====================== CONFIGURAÇÃO DE SESSÃO ======================
 app.set('trust proxy', 1);
 
 const sessionConfig = {
-  secret: process.env.SESSION_SECRET || 'genlove-secret-key-2026',
+  secret: process.env.SESSION_SECRET || SECRET_SIGNATURE,  // ← MODIFIÉ
   resave: false,
   saveUninitialized: false,
-  store: MongoDBStore.create({ mongouRI: mongouRI }),
+  store: MongoStore.create({
+    mongoUrl: mongouRI,
+    collectionName: 'sessions'
+  }),
   cookie: {
     maxAge: 1000 * 60 * 60 * 24 * 30,
     httpOnly: true,
