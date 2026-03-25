@@ -2187,6 +2187,83 @@ app.get('/charte-engagement', (req, res) => {
             if (!document.getElementById('agreeBtn').disabled) window.location.href = '/signup-choice';
         }
     </script>
+/* Popup professionnel - style SNS */
+.popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10000;
+  backdrop-filter: blur(4px);
+  display: none;
+}
+
+.popup-card {
+  background: white;
+  border-radius: 30px;
+  padding: 30px 25px;
+  max-width: 380px;
+  width: 90%;
+  text-align: center;
+  animation: popupAppear 0.4s ease-out;
+  border: 3px solid #ff416c;
+  box-shadow: 0 20px 40px rgba(255,65,108,0.3);
+  position: relative;
+}
+
+.popup-icon {
+  font-size: 3rem;
+  margin-bottom: 10px;
+}
+
+.popup-title {
+  color: #ff416c;
+  font-size: 1.4rem;
+  font-weight: bold;
+  margin-bottom: 15px;
+}
+
+.popup-message {
+  color: #1a2a44;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  margin-bottom: 20px;
+  padding: 0 10px;
+}
+
+.popup-btn {
+  background: #ff416c;
+  color: white;
+  border: none;
+  padding: 12px 30px;
+  border-radius: 40px;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s;
+  width: 100%;
+}
+
+.popup-btn:hover {
+  background: #e63956;
+  transform: scale(1.02);
+}
+
+@keyframes popupAppear {
+  from {
+    opacity: 0;
+    transform: translateY(30px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
 </body>
 </html>`);
 });
@@ -2402,16 +2479,14 @@ function onScanSuccess(decodedText){
       successDiv.innerHTML = '✅ Certificado válido! Dados preenchidos.';
       successDiv.style.backgroundColor = '#10b981';
 
-      // Caméra reste éteinte, pas de redémarrage
+      // Caméra reste éteinte
       
     } else {
-      // ❌ Certificat non agréé - réactiver la caméra pour un nouveau scan
-      hasScanned = false;
-      startRearCamera();
+      // ❌ Certificat non agréé - popup professionnel
+      showErrorPopup();
     }
   })
   .catch(err => {
-    // En cas d'erreur réseau, on ne fait rien (caméra reste éteinte)
     console.error(err);
   });
 }
@@ -4563,6 +4638,7 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
+
 
 
 
