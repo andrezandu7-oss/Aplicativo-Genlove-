@@ -13,6 +13,49 @@ const mongouRI = process.env.MONGODB_URI || 'mongodb://localhost:27017/genlove';
 mongoose.connect(mongouRI)
   .then(() => console.log('✅ Conectado ao MongoDB para Genlove!'))
   .catch(err => console.error('❌ Erro de conexão MongoDB:', err));
+// ============================================
+// IMPORTS POUR SÉCURITÉ
+// ============================================
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+
+// ============================================
+// FONCTIONS DE SÉCURITÉ
+// ============================================
+
+const hashPassword = async (password) => {
+  const saltRounds = 10;
+  return await bcrypt.hash(password, saltRounds);
+};
+
+const verifyPassword = async (password, hash) => {
+  return await bcrypt.compare(password, hash);
+};
+
+const generateToken = (userId) => {
+  return jwt.sign({ userId }, process.env.JWT_SECRET || 'genlove-secret-key-change-in-production', { expiresIn: '30d' });
+};
+
+const isAccountLocked = (user) => {
+  if (!user.lockUntil) return false;
+  return user.lockUntil > Date.now();
+};
+
+const recordFailedLogin = async (user) => {
+  const attempts = (user.loginAttempts || 0) + 1;
+  const update = { loginAttempts: attempts };
+  
+  if (attempts >= 5) {
+    update.lockUntil = Date.now() + 15 * 60 * 1000;
+  }
+  
+  await User.findByIdAndUpdate(user._id, update);
+};
+
+const resetLoginAttempts = async (userId) => {
+  await User.findByIdAndUpdate(userId, { loginAttempts: 0, lockUntil: null });
+};
 
 // ====================== ASSINATURA SECRETA ======================
 const SECRET_SIGNATURE = "SNS-Angola-2026";
@@ -67,6 +110,17 @@ const userSchema = new mongoose.Schema({
     verificationBadge: { type: String, enum: ['none', 'self', 'lab'], default: 'none' }
 });
 
+// À AJOUTER DANS LE userSchema (vers la fin, avant la fermeture du schema)
+  email: { type: String, unique: true, sparse: true },
+  passwordHash: { type: String },
+  loginAttempts: { type: Number, default: 0 },
+  lockUntil: { type: Date },
+  passwordResetToken: String,
+  passwordResetExpires: Date,
+  emailVerified: { type: Boolean, default: false },
+  emailVerificationToken: String,
+  emailVerificationExpires: Date
+});
 const messageSchema = new mongoose.Schema({
     senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     receiverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -198,6 +252,49 @@ const translations = {
         notifications: 'Notifications push',
         language: 'Langue',
         blockedUsers: 'Utilisateurs bloqués',
+// AJOUTER CETTE SECTION APRÈS LA SECTION LANGUE ET AVANT DANGER ZONE
+
+<div style="padding:15px 20px 5px 20px; font-size:0.75rem; color:#888; font-weight:bold;">
+  DADOS DE ACESSO
+</div>
+<div class="st-group">
+  <div class="st-item" onclick="showChangeEmailModal()" style="cursor:pointer;">
+    <span>📧 Modifier l'email</span>
+    <b>✎</b>
+  </div>
+  <div class="st-item" onclick="showChangePasswordModal()" style="cursor:pointer;">
+    <span>🔒 Modifier le mot de passe</span>
+    <b>✎</b>
+  </div>
+</div>
+
+<!-- Modal changement email -->
+<div id="email-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
+  <div class="popup-card" style="max-width:350px;">
+    <h3 style="color:#ff416c;">Modifier l'email</h3>
+    <div class="input-label">Nouvel email</div>
+    <input type="email" id="new-email" class="input-box">
+    <div class="input-label">Mot de passe actuel</div>
+    <input type="password" id="email-password" class="input-box">
+    <button onclick="updateEmail()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
+    <button onclick="closeEmailModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
+  </div>
+</div>
+
+<!-- Modal changement mot de passe -->
+<div id="password-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
+  <div class="popup-card" style="max-width:350px;">
+    <h3 style="color:#ff416c;">Modifier le mot de passe</h3>
+    <div class="input-label">Mot de passe actuel</div>
+    <input type="password" id="current-password" class="input-box">
+    <div class="input-label">Nouveau mot de passe</div>
+    <input type="password" id="new-password" class="input-box">
+    <div class="input-label">Confirmer le nouveau mot de passe</div>
+    <input type="password" id="confirm-new-password" class="input-box">
+    <button onclick="updatePassword()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
+    <button onclick="closePasswordModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
+  </div>
+</div>
         dangerZone: 'ZONE DE DANGER',
         deleteAccount: 'Supprimer mon compte',
         delete: 'Supprimer',
@@ -2059,55 +2156,183 @@ app.get('/', (req, res) => {
 });
 
 // ============================================
-// LOGIN
+// ============================================
+// PAGE DE CONNEXION AVEC 2 ONGLETS
 // ============================================
 app.get('/login', (req, res) => {
-    const t = req.t;
-    res.send(`<!DOCTYPE html>
+  const t = req.t;
+  
+  res.send(`<!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-    <title>${t('appName')} - ${t('loginTitle')}</title>
-    ${styles}
-    ${notifyScript}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+  <title>${t('appName')} - ${t('loginTitle')}</title>
+  ${styles}
+  <style>
+    .tabs { display: flex; margin-bottom: 30px; border-bottom: 2px solid #e2e8f0; }
+    .tab { flex: 1; text-align: center; padding: 12px; cursor: pointer; font-weight: 600; color: #666; transition: all 0.3s; border-bottom: 3px solid transparent; }
+    .tab.active { color: #ff416c; border-bottom-color: #ff416c; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .qr-reader-container { text-align: center; margin: 20px 0; }
+    #qr-reader { width: 100%; max-width: 300px; margin: 0 auto; border-radius: 15px; overflow: hidden; }
+    .qr-info { background: #f8f9fa; padding: 15px; border-radius: 15px; margin-top: 20px; font-size: 0.9rem; color: #666; }
+    .forgot-link { text-align: right; margin-top: 10px; }
+    .forgot-link a { color: #ff416c; text-decoration: none; font-size: 0.9rem; }
+  </style>
 </head>
 <body>
-    <div class="app-shell">
-        <div class="page-white">
-            <h2>${t('loginTitle')}</h2>
-            <p style="font-size: 1.2rem; margin: 20px 0;">${t('enterName')}</p>
-            <form id="loginForm">
-                <input type="text" id="firstName" class="input-box" placeholder="${t('yourName')}" required>
-                <button type="submit" class="btn-pink">${t('login')}</button>
-            </form>
-            <a href="/" class="back-link">← ${t('backHome')}</a>
+  <div class="app-shell">
+    <div class="page-white">
+      <h2 style="text-align: center;">${t('loginTitle')}</h2>
+      
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('email')">📧 Email</div>
+        <div class="tab" onclick="switchTab('qr')">📱 QR Code</div>
+      </div>
+      
+      <div id="email-tab" class="tab-content active">
+        <form id="loginForm">
+          <div class="input-label">Email</div>
+          <input type="email" id="email" class="input-box" placeholder="votre@email.com" required>
+          <div class="input-label">Mot de passe</div>
+          <input type="password" id="password" class="input-box" placeholder="••••••" required>
+          <div class="forgot-link"><a href="#" onclick="showForgotPassword()">Mot de passe oublié ?</a></div>
+          <button type="submit" class="btn-pink">${t('login')}</button>
+        </form>
+      </div>
+      
+      <div id="qr-tab" class="tab-content">
+        <div class="qr-reader-container">
+          <div id="qr-reader"></div>
+          <div class="qr-info">
+            <p>📸 Scannez votre certificat médical Genótipo</p>
+            <p style="font-size: 0.8rem; margin-top: 10px;">Le QR code doit contenir vos données médicales certifiées par laboratoire</p>
+          </div>
         </div>
+      </div>
+      
+      <a href="/" class="back-link">← ${t('backHome')}</a>
     </div>
-    <script>
-        document.getElementById('loginForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            const firstName = document.getElementById('firstName').value;
-            const res = await fetch('/api/login', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({firstName})
-            });
-            if (res.ok) window.location.href = '/profile';
-            else alert('${t('nameNotFound')}');
-        });
-        
-        document.getElementById('firstName').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                document.getElementById('loginForm').requestSubmit();
-            }
-        });
-    </script>
+  </div>
+  
+  <div id="forgot-popup" style="display: none; position: fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
+    <div class="popup-card" style="max-width: 350px;">
+      <h3 style="color:#ff416c;">Réinitialisation</h3>
+      <p style="margin: 15px 0;">Entrez votre email pour recevoir un lien de réinitialisation</p>
+      <input type="email" id="reset-email" class="input-box" placeholder="votre@email.com">
+      <button onclick="sendResetLink()" class="btn-pink" style="margin-top: 15px;">Envoyer</button>
+      <button onclick="closeForgotPopup()" style="margin-top: 10px; background: #eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
+    </div>
+  </div>
+  
+  <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
+  
+  <script src="https://unpkg.com/html5-qrcode@2.3.8"></script>
+  <script>
+    let html5QrCode = null;
+    let qrScanning = false;
+    
+    function switchTab(tab) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      if (tab === 'email') {
+        document.querySelector('.tab:first-child').classList.add('active');
+        document.getElementById('email-tab').classList.add('active');
+        stopQRScanner();
+      } else {
+        document.querySelector('.tab:last-child').classList.add('active');
+        document.getElementById('qr-tab').classList.add('active');
+        startQRScanner();
+      }
+    }
+    
+    async function startQRScanner() {
+      if (qrScanning) return;
+      html5QrCode = new Html5Qrcode("qr-reader");
+      try {
+        const devices = await Html5Qrcode.getCameras();
+        if (devices.length > 0) {
+          await html5QrCode.start(devices[0].id, { fps: 10, qrbox: 250 }, onQRScanSuccess, (err) => { if (!err.includes("NotFoundException")) console.log(err); });
+          qrScanning = true;
+        } else {
+          document.getElementById('qr-reader').innerHTML = '<p style="color:#666; padding:20px;">📷 Aucune caméra détectée</p>';
+        }
+      } catch(e) {
+        document.getElementById('qr-reader').innerHTML = '<p style="color:#666; padding:20px;">⚠️ Impossible d\'accéder à la caméra</p>';
+      }
+    }
+    
+    function stopQRScanner() {
+      if (html5QrCode && qrScanning) { html5QrCode.stop().then(() => { qrScanning = false; }).catch(console.log); }
+    }
+    
+    async function onQRScanSuccess(decodedText) {
+      stopQRScanner();
+      showNotify("📱 Vérification du certificat...", "info");
+      try {
+        const response = await fetch('/api/validate-genotype-qr', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ qrData: decodedText }) });
+        const data = await response.json();
+        if (data.success && data.userData) {
+          sessionStorage.setItem('qrData', JSON.stringify(data.userData));
+          window.location.href = '/signup-from-qr';
+        } else {
+          showNotify("❌ Certificat non reconnu", "error");
+          setTimeout(() => startQRScanner(), 2000);
+        }
+      } catch(e) {
+        showNotify("❌ Erreur de vérification", "error");
+        setTimeout(() => startQRScanner(), 2000);
+      }
+    }
+    
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      showNotify("Connexion en cours...", "info");
+      try {
+        const response = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+        const data = await response.json();
+        if (data.success) {
+          showNotify("✅ Connexion réussie !", "success");
+          setTimeout(() => window.location.href = '/profile', 1000);
+        } else {
+          showNotify(data.error || "❌ Échec de connexion", "error");
+        }
+      } catch(e) { showNotify("❌ Erreur réseau", "error"); }
+    });
+    
+    function showNotify(msg, type) {
+      const notify = document.getElementById('genlove-notify');
+      const msgSpan = document.getElementById('notify-msg');
+      msgSpan.innerText = msg;
+      notify.style.backgroundColor = type === 'success' ? '#4CAF50' : (type === 'error' ? '#dc3545' : '#1a2a44');
+      notify.classList.add('show');
+      setTimeout(() => notify.classList.remove('show'), 3000);
+    }
+    
+    function showForgotPassword() { document.getElementById('forgot-popup').style.display = 'flex'; }
+    function closeForgotPopup() { document.getElementById('forgot-popup').style.display = 'none'; }
+    
+    async function sendResetLink() {
+      const email = document.getElementById('reset-email').value;
+      if (!email) { showNotify("Veuillez entrer votre email", "error"); return; }
+      showNotify("Envoi en cours...", "info");
+      try {
+        const response = await fetch('/api/forgot-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+        const data = await response.json();
+        showNotify(data.message, "success");
+        closeForgotPopup();
+      } catch(e) { showNotify("Erreur réseau", "error"); }
+    }
+    
+    window.addEventListener('beforeunload', () => { if (html5QrCode && qrScanning) { html5QrCode.stop().catch(() => {}); } });
+  </script>
 </body>
 </html>`);
 });
-
 // ============================================
 // CHARTE D'ENGAGEMENT
 // ============================================
@@ -2735,6 +2960,99 @@ app.get('/signup-manual', (req, res) => {
             }
         });
     </script>
+</body>
+</html>`);
+});
+// ============================================
+// INSCRIPTION APRÈS SCAN QR
+// ============================================
+app.get('/signup-from-qr', (req, res) => {
+  const t = req.t;
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+  <title>${t('appName')} - Compléter inscription</title>
+  ${styles}
+</head>
+<body>
+  <div class="app-shell">
+    <div class="page-white">
+      <h2 style="color:#ff416c;">Compléter votre inscription</h2>
+      <p style="margin-bottom: 20px;">Vos données médicales ont été vérifiées. Veuillez créer un compte avec email et mot de passe.</p>
+      <form id="signupForm">
+        <div class="input-label">Email</div>
+        <input type="email" id="email" class="input-box" required>
+        <div class="input-label">Mot de passe</div>
+        <input type="password" id="password" class="input-box" required>
+        <div class="input-label">Confirmer le mot de passe</div>
+        <input type="password" id="confirmPassword" class="input-box" required>
+        <div id="qr-fields"></div>
+        <div class="checkbox-container"><input type="checkbox" id="terms" required><label>J'accepte les conditions d'utilisation</label></div>
+        <button type="submit" class="btn-pink">Créer mon compte</button>
+      </form>
+      <a href="/login" class="back-link">← Retour à la connexion</a>
+    </div>
+  </div>
+  <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
+  <script>
+    const qrData = JSON.parse(sessionStorage.getItem('qrData') || '{}');
+    if (!qrData.firstName) { window.location.href = '/signup-choice'; }
+    document.getElementById('qr-fields').innerHTML = \`
+      <div style="background:#e8f5e9; padding:15px; border-radius:15px; margin:15px 0;">
+        <p><strong>✓ Données vérifiées par certificat</strong></p>
+        <p>Prénom: \${qrData.firstName}</p>
+        <p>Nom: \${qrData.lastName}</p>
+        <p>Genre: \${qrData.gender}</p>
+        <p>Génotype: \${qrData.genotype}</p>
+        <p>Groupe sanguin: \${qrData.bloodGroup}</p>
+      </div>
+      <input type="hidden" id="firstName" value="\${qrData.firstName}">
+      <input type="hidden" id="lastName" value="\${qrData.lastName}">
+      <input type="hidden" id="gender" value="\${qrData.gender}">
+      <input type="hidden" id="genotype" value="\${qrData.genotype}">
+      <input type="hidden" id="bloodGroup" value="\${qrData.bloodGroup}">
+      <input type="hidden" id="qrVerified" value="true">
+      <input type="hidden" id="verificationBadge" value="lab">
+    \`;
+    function showNotify(msg, type) {
+      const notify = document.getElementById('genlove-notify');
+      const msgSpan = document.getElementById('notify-msg');
+      msgSpan.innerText = msg;
+      notify.style.backgroundColor = type === 'success' ? '#4CAF50' : '#dc3545';
+      notify.classList.add('show');
+      setTimeout(() => notify.classList.remove('show'), 3000);
+    }
+    document.getElementById('signupForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+      if (!email || !password) { showNotify("Veuillez remplir tous les champs", "error"); return; }
+      if (password !== confirmPassword) { showNotify("Les mots de passe ne correspondent pas", "error"); return; }
+      if (password.length < 6) { showNotify("Le mot de passe doit contenir au moins 6 caractères", "error"); return; }
+      showNotify("Création du compte...", "info");
+      const userData = {
+        email, password,
+        firstName: qrData.firstName,
+        lastName: qrData.lastName,
+        gender: qrData.gender,
+        genotype: qrData.genotype,
+        bloodGroup: qrData.bloodGroup,
+        qrVerified: true,
+        verificationBadge: 'lab',
+        language: 'fr',
+        isPublic: true
+      };
+      try {
+        const response = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(userData) });
+        const data = await response.json();
+        if (data.success) { showNotify("✅ Compte créé avec succès !", "success"); setTimeout(() => window.location.href = '/profile', 1500); }
+        else { showNotify(data.error || "Erreur lors de l'inscription", "error"); }
+      } catch(e) { showNotify("Erreur réseau", "error"); }
+    });
+  </script>
 </body>
 </html>`);
 });
@@ -3807,7 +4125,23 @@ async function updateVisibility(isPublic) {
         status.innerText = !isPublic ? '${t('public')}' : '${t('private')}';
     }
 }
-</script>
+<script>
+function showChangeEmailModal() { document.getElementById('email-modal').style.display = 'flex'; }
+function closeEmailModal() { document.getElementById('email-modal').style.display = 'none'; document.getElementById('new-email').value = ''; document.getElementById('email-password').value = ''; }
+async function updateEmail() {
+  const newEmail = document.getElementById('new-email').value;
+  const password = document.getElementById('email-password').value;
+  if (!newEmail || !password) { showNotify("Veuillez remplir tous les champs", "error"); return; }
+  showNotify("Modification en cours...", "info");
+  try {
+    const response = await fetch('/api/user/update-email', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newEmail, password }) });
+    const data = await response.json();
+    if (data.success) { showNotify(data.message, "success"); closeEmailModal(); setTimeout(() => location.reload(), 2000); }
+    else { showNotify(data.error, "error"); }
+  } catch(e) { showNotify("Erreur réseau", "error"); }
+}
+function showChangePasswordModal() { document.getElementById('password-modal').style.display = 'flex'; }
+function closePasswordModal() { document.getElementById('password-modal').style.display = 'none'; document.getElementById('current-password').value = ''; document.getElementById('new-password').value = ''; document.getElementById(‘
 </body>
 </html>`);
     } catch(error) {
@@ -4307,18 +4641,146 @@ app.post('/api/login', async (req, res) => {
 });
 
 app.post('/api/register', async (req, res) => {
-    try {
-        const user = new User(req.body);
-        await user.save();
-        
-        req.session.userId = user._id;
-        req.session.isVerified = false;
-        await new Promise(resolve => req.session.save(resolve));
-        
-        res.json({ success: true });
-    } catch(e) {
-        res.status(500).json({ error: e.message });
+  try {
+    const { 
+      email, 
+      password, 
+      firstName, 
+      lastName, 
+      gender, 
+      dob, 
+      residence, 
+      region, 
+      genotype, 
+      bloodGroup, 
+      desireChild, 
+      photo, 
+      language,
+      qrVerified,
+      verificationBadge,
+      isPublic
+    } = req.body;
+    
+    // Vérification email existant (si email fourni)
+    if (email) {
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return res.status(400).json({ error: "Cet email est déjà utilisé" });
+      }
+      
+      // Validation du format email
+const emailRegex = /^[^\s@]+@([^\s@]+\.)+[^\s@]+$/;
+if (email && !emailRegex.test(email)) {
+  return res.status(400).json({ error: "Format d'email invalide" });
+}
     }
+    
+    // Validation du mot de passe (si fourni)
+    let passwordHash = null;
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).json({ error: "Le mot de passe doit contenir au moins 6 caractères" });
+      }
+      passwordHash = await hashPassword(password);
+    }
+    
+    // Création du token de vérification email
+    let emailVerificationToken = null;
+    let emailVerificationExpires = null;
+    if (email) {
+      emailVerificationToken = crypto.randomBytes(32).toString('hex');
+      emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000;
+    }
+    
+    const user = new User({
+      firstName,
+      lastName,
+      gender: gender || '',
+      dob: dob || '',
+      residence: residence || '',
+      region: region || '',
+      genotype: genotype || '',
+      bloodGroup: bloodGroup || '',
+      desireChild: desireChild || '',
+      photo: photo || '',
+      language: language || 'fr',
+      isPublic: isPublic !== undefined ? isPublic : true,
+      qrVerified: qrVerified || false,
+      verificationBadge: verificationBadge || 'self',
+      email: email || null,
+      passwordHash: passwordHash,
+      emailVerificationToken: emailVerificationToken,
+      emailVerificationExpires: emailVerificationExpires,
+      emailVerified: !email
+    });
+    
+    await user.save();
+    
+    req.session.userId = user._id;
+    await new Promise(resolve => req.session.save(resolve));
+    
+    const token = email ? generateToken(user._id) : null;
+    
+    res.json({ 
+      success: true, 
+      token,
+      userId: user._id,
+      emailVerified: user.emailVerified
+    });
+    
+  } catch(error) {
+    console.error("Erreur inscription:", error);
+    res.status(500).json({ error: "Erreur lors de l'inscription: " + error.message });
+  }
+});
+// ============================================
+// LOGIN PAR EMAIL
+// ============================================
+app.post('/api/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email et mot de passe requis" });
+    }
+    
+    const user = await User.findOne({ email });
+    
+    if (!user || !user.passwordHash) {
+      return res.status(401).json({ error: "Email ou mot de passe incorrect" });
+    }
+    
+    if (isAccountLocked(user)) {
+      const remainingTime = Math.ceil((user.lockUntil - Date.now()) / 60000);
+      return res.status(401).json({ error: `Compte bloqué. Réessayez dans ${remainingTime} minutes` });
+    }
+    
+    const isValid = await verifyPassword(password, user.passwordHash);
+    
+    if (!isValid) {
+      await recordFailedLogin(user);
+      const attemptsLeft = 4 - (user.loginAttempts || 0);
+      return res.status(401).json({ error: `Email ou mot de passe incorrect. ${attemptsLeft} tentatives restantes` });
+    }
+    
+    await resetLoginAttempts(user._id);
+    const token = generateToken(user._id);
+    
+    req.session.userId = user._id;
+    await new Promise(resolve => req.session.save(resolve));
+    
+    res.json({
+      success: true,
+      token,
+      userId: user._id,
+      emailVerified: user.emailVerified,
+      firstName: user.firstName
+    });
+    
+  } catch(error) {
+    console.error("Erreur login:", error);
+    res.status(500).json({ error: "Erreur lors de la connexion" });
+  }
 });
 
 app.post('/api/requests', requireAuth, async (req, res) => {
@@ -4363,48 +4825,44 @@ app.get('/api/requests/pending', requireAuth, async (req, res) => {
 });
 
 app.post('/api/requests/:id/accept', requireAuth, async (req, res) => {
-    try {
-        const request = await Request.findById(req.params.id);
-        if (!request) return res.status(404).json({ error: 'Demande non trouvée' });
-        
-        request.status = 'accepted';
-        request.viewed = true;
-        await request.save();
-        
-        res.json({ success: true });
-    } catch(e) {
-        res.status(500).json({ error: e.message });
-    }
+  try {
+    const request = await Request.findById(req.params.id);
+    if (!request) return res.status(404).json({ error: 'Demande non trouvée' });
+    request.status = 'accepted';
+    request.viewed = true;
+    await request.save();
+    res.json({ success: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/requests/:id/reject', requireAuth, async (req, res) => {
-    try {
-        const request = await Request.findById(req.params.id);
-        if (!request) return res.status(404).json({ error: 'Demande non trouvée' });
-        
-        request.status = 'rejected';
-        request.viewed = true;
-        await request.save();
-        
-        res.json({ success: true });
-    } catch(e) {
-        res.status(500).json({ error: e.message });
-    }
+  try {
+    const request = await Request.findById(req.params.id);
+    if (!request) return res.status(404).json({ error: 'Demande non trouvée' });
+    request.status = 'rejected';
+    request.viewed = true;
+    await request.save();
+    res.json({ success: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/messages', requireAuth, async (req, res) => {
-    try {
-        const msg = new Message({
-            senderId: req.session.userId,
-            receiverId: req.body.receiverId,
-            text: req.body.text,
-            read: false
-        });
-        await msg.save();
-        res.json(msg);
-    } catch(e) {
-        res.status(500).json({ error: e.message });
-    }
+  try {
+    const msg = new Message({
+      senderId: req.session.userId,
+      receiverId: req.body.receiverId,  // ← CORRIGÉ : receiverId au lieu de receiveId
+      text: req.body.text,
+      read: false
+    });
+    await msg.save();
+    res.json(msg);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/block/:userId', requireAuth, async (req, res) => {
@@ -4537,6 +4995,119 @@ app.post('/api/validate-genotype-qr', async (req, res) => {
     res.status(500).json({ error: 'Erro interno do servidor' });
   }
 });
+// ============================================
+// CHANGEMENT D'EMAIL
+// ============================================
+app.put('/api/user/update-email', requireAuth, async (req, res) => {
+  try {
+    const { newEmail, password } = req.body;
+    const userId = req.session.userId;
+    
+    if (!newEmail || !password) {
+      return res.status(400).json({ error: "Tous les champs sont requis" });
+    }
+    
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
+    
+    const isValid = await verifyPassword(password, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: "Mot de passe incorrect" });
+    }
+    
+    const existingUser = await User.findOne({ email: newEmail });
+    if (existingUser && existingUser._id.toString() !== userId) {
+      return res.status(400).json({ error: "Cet email est déjà utilisé" });
+    }
+    
+    const emailRegex = /^[^\s@]+@([^\s@]+\.)+[^\s@]+$/;
+    if (!emailRegex.test(newEmail)) {
+      return res.status(400).json({ error: "Format d'email invalide" });
+    }
+    
+    const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+    const emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000;
+    
+    user.email = newEmail;
+    user.emailVerified = false;
+    user.emailVerificationToken = emailVerificationToken;
+    user.emailVerificationExpires = emailVerificationExpires;
+    await user.save();
+    
+    res.json({ success: true, message: "Email modifié. Vérifiez votre nouvelle boîte email." });
+    
+  } catch(error) {
+    console.error(error);
+    res.status(500).json({ error: "Erreur lors de la modification" });
+  }
+});
+
+// ============================================
+// CHANGEMENT DE MOT DE PASSE
+// ============================================
+app.put('/api/user/update-password', requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+    const userId = req.session.userId;
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "Tous les champs sont requis" });
+    }
+    
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ error: "Les mots de passe ne correspondent pas" });
+    }
+    
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "Le mot de passe doit contenir au moins 6 caractères" });
+    }
+    
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
+    
+    const isValid = await verifyPassword(currentPassword, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: "Mot de passe actuel incorrect" });
+    }
+    
+    user.passwordHash = await hashPassword(newPassword);
+    await user.save();
+    
+    res.json({ success: true, message: "Mot de passe modifié avec succès" });
+    
+  } catch(error) {
+    console.error(error);
+    res.status(500).json({ error: "Erreur lors de la modification" });
+  }
+});
+
+// ============================================
+// MOT DE PASSE OUBLIÉ - DEMANDE
+// ============================================
+app.post('/api/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.json({ success: true, message: "Si cet email existe, un lien de réinitialisation a été envoyé" });
+    }
+    
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    user.passwordResetToken = resetToken;
+    user.passwordResetExpires = Date.now() + 60 * 60 * 1000;
+    await user.save();
+    
+    // Pour l'instant, juste logger (vous pourrez ajouter l'envoi d'email plus tard)
+    console.log(`Lien de réinitialisation pour ${email}: /reset-password?token=${resetToken}`);
+    
+    res.json({ success: true, message: "Un email de réinitialisation a été envoyé" });
+    
+  } catch(error) {
+    console.error(error);
+    res.status(500).json({ error: "Erreur lors de la demande" });
+  }
+});
 
 // ============================================
 // DÉMARRAGE
@@ -4566,6 +5137,7 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
+
 
 
 
