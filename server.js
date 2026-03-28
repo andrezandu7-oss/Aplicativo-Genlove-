@@ -3993,23 +3993,52 @@ app.get('/settings', requireAuth, async (req, res) => {
     <b>✎</b>
   </div>
 </div>
-    <div class="st-group danger-zone">
-        <div class="st-item" style="color:#dc3545; font-weight:bold; justify-content:center;">
-            ⚠️ ${t('dangerZone')} ⚠️
-        </div>
-        <div style="padding:20px; text-align:center;">
-            <p style="color:#666; margin-bottom:20px; font-size:0.95rem;">
-                ${t('deleteAccount')}
-            </p>
-            <button id="deleteBtn" class="btn-action btn-block" style="background:#dc3545; color:white; padding:15px; width:100%; font-size:1.1rem;" onclick="showDeleteConfirmation()">
-                🗑️ ${t('delete')}
-            </button>
-        </div>
-    </div>
-    
-    <a href="/profile" class="btn-pink">← ${t('backProfile')}</a>
-    <a href="/logout-success" class="btn-dark" style="text-decoration:none;">${t('logout')}</a>
+
+<div class="st-group danger-zone">
+  <div class="st-item" style="color:#dc3545; font-weight:bold; justify-content:center;">
+    ⚠️ ${t('dangerZone')} ⚠️
+  </div>
+  <div style="padding:20px; text-align:center;">
+    <p style="color:#666; margin-bottom:20px; font-size:0.95rem;">
+      ${t('deleteAccount')}
+    </p>
+    <button id="deleteBtn" class="btn-action btn-block" style="background:#dc3545; color:white; padding:15px; width:100%; font-size:1.1rem;" onclick="showDeleteConfirmation()">
+      🗑️ ${t('delete')}
+    </button>
+  </div>
 </div>
+
+<a href="/profile" class="btn-pink">← ${t('backProfile')}</a>
+<a href="/logout-success" class="btn-dark" style="text-decoration:none;">${t('logout')}</a>
+</div>
+
+<!-- ========== MODALS ========== -->
+<div id="email-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
+  <div class="popup-card" style="max-width:350px;">
+    <h3 style="color:#ff416c;">Modifier l'email</h3>
+    <div class="input-label">Nouvel email</div>
+    <input type="email" id="new-email" class="input-box">
+    <div class="input-label">Mot de passe actuel</div>
+    <input type="password" id="email-password" class="input-box">
+    <button onclick="updateEmail()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
+    <button onclick="closeEmailModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
+  </div>
+</div>
+
+<div id="password-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
+  <div class="popup-card" style="max-width:350px;">
+    <h3 style="color:#ff416c;">Modifier le mot de passe</h3>
+    <div class="input-label">Mot de passe actuel</div>
+    <input type="password" id="current-password" class="input-box">
+    <div class="input-label">Nouveau mot de passe</div>
+    <input type="password" id="new-password" class="input-box">
+    <div class="input-label">Confirmer le nouveau mot de passe</div>
+    <input type="password" id="confirm-new-password" class="input-box">
+    <button onclick="updatePassword()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
+    <button onclick="closePasswordModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
+  </div>
+</div>
+<!-- ========== FIN MODALS ========== -->
 
 <script>
 function showDeleteConfirmation() {
@@ -4050,33 +4079,6 @@ async function updateVisibility(isPublic) {
         status.innerText = !isPublic ? '${t('public')}' : '${t('private')}';
     }
 }
-<!-- Modal changement email -->
-<div id="email-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
-  <div class="popup-card" style="max-width:350px;">
-    <h3 style="color:#ff416c;">Modifier l'email</h3>
-    <div class="input-label">Nouvel email</div>
-    <input type="email" id="new-email" class="input-box">
-    <div class="input-label">Mot de passe actuel</div>
-    <input type="password" id="email-password" class="input-box">
-    <button onclick="updateEmail()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
-    <button onclick="closeEmailModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
-  </div>
-</div>
-
-<!-- Modal changement mot de passe -->
-<div id="password-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
-  <div class="popup-card" style="max-width:350px;">
-    <h3 style="color:#ff416c;">Modifier le mot de passe</h3>
-    <div class="input-label">Mot de passe actuel</div>
-    <input type="password" id="current-password" class="input-box">
-    <div class="input-label">Nouveau mot de passe</div>
-    <input type="password" id="new-password" class="input-box">
-    <div class="input-label">Confirmer le nouveau mot de passe</div>
-    <input type="password" id="confirm-new-password" class="input-box">
-    <button onclick="updatePassword()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
-    <button onclick="closePasswordModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
-  </div>
-</div>
 
 function showChangeEmailModal() { 
   document.getElementById('email-modal').style.display = 'flex'; 
@@ -4160,7 +4162,6 @@ async function updatePassword() {
     showNotify("Erreur réseau", "error"); 
   }
 }
-// ===== FIN AJOUT =====
 </script>
 </body>
 </html>`);
@@ -4168,8 +4169,7 @@ async function updatePassword() {
         console.error(error);
         res.status(500).send('Erreur paramètres');
     }
-});
-// ============================================
+});// ============================================
 // ============================================
 // EDIT PROFILE - AVEC TRADUCTIONS COMPLÈTES
 // ============================================
