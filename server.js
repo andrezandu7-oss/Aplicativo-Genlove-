@@ -2860,39 +2860,60 @@ app.get('/signup-manual', (req, res) => {
         }
         
         document.getElementById('signupForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            document.getElementById('loader').style.display = 'flex';
-            
-            const day = document.querySelector('select[name="day"]').value;
-            const month = document.querySelector('select[name="month"]').value;
-            const year = document.querySelector('select[name="year"]').value;
-            
-            if (!day || !month || !year) {
-                alert('${t('dob')} ${t('required')}');
-                document.getElementById('loader').style.display = 'none';
-                return;
-            }
-            
-            const dob = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
-            
-            const userData = {
-                firstName: document.getElementById('firstName').value,
-                lastName: document.getElementById('lastName').value,
-                gender: document.getElementById('gender').value,
-                dob: dob,
-                residence: document.getElementById('residence').value,
-                region: document.getElementById('region').value,
-                genotype: document.getElementById('genotype').value,
-                bloodGroup: document.getElementById('bloodType').value + document.getElementById('bloodRh').value,
-                desireChild: document.getElementById('desireChild').value,
-                photo: photoBase64 || "",
-                language: '${req.lang}',
-                isPublic: true,
-                qrVerified: false,
-                verificationBadge: 'self'
-            };
-            
+  e.preventDefault();
+  document.getElementById('loader').style.display = 'flex';
+  
+  // ===== RÉCUPÉRER L'EMAIL TEMPORAIRE =====
+  let tempEmail = null;
+  let tempPasswordHash = null;
+  
+  try {
+    const tempRes = await fetch('/api/get-temp-signup');
+    const tempData = await tempRes.json();
+    
+    if (tempData.email) {
+      tempEmail = tempData.email;
+      tempPasswordHash = tempData.passwordHash;
+      console.log("✅ Email temporaire récupéré:", tempEmail);
+    } else {
+      console.log("⚠️ Aucun email temporaire trouvé");
+    }
+  } catch(e) {
+    console.error("Erreur récupération email temporaire:", e);
+  }
+  // ===== FIN RÉCUPÉRATION =====
+  
+  const day = document.querySelector('select[name="day"]').value;
+  const month = document.querySelector('select[name="month"]').value;
+  const year = document.querySelector('select[name="year"]').value;
+  
+  if (!day || !month || !year) {
+    alert('Date de naissance requise');
+    document.getElementById('loader').style.display = 'none';
+    return;
+  }
+  
+  const dob = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
+  
+  const userData = {
+    firstName: document.getElementById('firstName').value,
+    lastName: document.getElementById('lastName').value,
+    gender: document.getElementById('gender').value,
+    dob: dob,
+    residence: document.getElementById('residence').value,
+    region: document.getElementById('region').value,
+    genotype: document.getElementById('genotype').value,
+    bloodGroup: document.getElementById('bloodType').value + document.getElementById('bloodRh').value,
+    desireChild: document.getElementById('desireChild').value,
+    photo: photoBase64 || "",
+    language: 'fr',
+    isPublic: true,
+    qrVerified: false,
+    verificationBadge: 'self',
+    // ===== AJOUTER EMAIL ET MOT DE PASSE =====
+    email: tempEmail,
+    passwordHash: tempPasswordHash
+  };            
             try {
                 const res = await fetch('/api/register', {
                     method: 'POST',
