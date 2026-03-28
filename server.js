@@ -4473,20 +4473,36 @@ app.get('/logout-success', (req, res) => {
 // ============================================
 
 app.post('/api/login', async (req, res) => {
-    try {
-        const user = await User.findOne({ firstName: req.body.firstName }).sort({ createdAt: -1 });
-        if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
-        
-        req.session.userId = user._id;
-        req.session.isVerified = user.isVerified;
-        await new Promise(resolve => req.session.save(resolve));
-        
-        res.json({ success: true });
-    } catch(e) {
-        res.status(500).json({ error: e.message });
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email et mot de passe requis" });
     }
+    
+    const user = await User.findOne({ email });
+    
+    if (!user || !user.passwordHash) {
+      return res.status(401).json({ error: "Email ou mot de passe incorrect" });
+    }
+    
+    const isValid = await bcrypt.compare(password, user.passwordHash);
+    
+    if (!isValid) {
+      return res.status(401).json({ error: "Email ou mot de passe incorrect" });
+    }
+    
+    req.session.userId = user._id;
+    req.session.isVerified = user.isVerified;
+    await new Promise(resolve => req.session.save(resolve));
+    
+    res.json({ success: true, userId: user._id, firstName: user.firstName });
+    
+  } catch(e) {
+    console.error("Erreur login:", e);
+    res.status(500).json({ error: "Erreur lors de la connexion" });
+  }
 });
-
 app.post('/api/register', async (req, res) => {
     try {
         const user = new User(req.body);
@@ -4785,6 +4801,8 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
+
+
 
 
 
