@@ -2293,8 +2293,12 @@ app.get('/signup-email', (req, res) => {
 // CHARTE D'ENGAGEMENT
 // ============================================
 app.get('/charte-engagement', (req, res) => {
-    const t = req.t;
-    res.send(`<!DOCTYPE html>
+  const t = req.t;
+  const tempId = req.query.tempId;
+  
+  if (tempId) {
+    req.session.tempSignupId = tempId;
+  }    res.send(`<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -4801,6 +4805,27 @@ app.post('/api/temp-signup', async (req, res) => {
     res.json({ success: true, tempId });
   } catch(error) {
     res.status(500).json({ error: error.message });
+  }
+});
+app.get('/api/get-temp-signup', async (req, res) => {
+  try {
+    const tempId = req.session.tempSignupId;
+    if (!tempId || !tempSignups.has(tempId)) {
+      return res.json({ email: null, passwordHash: null });
+    }
+    
+    const tempData = tempSignups.get(tempId);
+    if (tempData.expires < Date.now()) {
+      tempSignups.delete(tempId);
+      return res.json({ email: null, passwordHash: null });
+    }
+    
+    res.json({ 
+      email: tempData.email,
+      passwordHash: tempData.passwordHash
+    });
+  } catch(error) {
+    res.json({ email: null, passwordHash: null });
   }
 });
 // ============================================
