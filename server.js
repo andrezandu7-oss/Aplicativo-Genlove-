@@ -3980,7 +3980,19 @@ app.get('/settings', requireAuth, async (req, res) => {
             <b>${blockedCount} ➔</b>
         </a>
     </div>
-    
+    <div style="padding:15px 20px 5px 20px; font-size:0.75rem; color:#888; font-weight:bold;">
+  🔐 DADOS DE ACESSO
+</div>
+<div class="st-group">
+  <div class="st-item" onclick="showChangeEmailModal()" style="cursor:pointer;">
+    <span>📧 Modifier l'email</span>
+    <b>✎</b>
+  </div>
+  <div class="st-item" onclick="showChangePasswordModal()" style="cursor:pointer;">
+    <span>🔒 Modifier le mot de passe</span>
+    <b>✎</b>
+  </div>
+</div>
     <div class="st-group danger-zone">
         <div class="st-item" style="color:#dc3545; font-weight:bold; justify-content:center;">
             ⚠️ ${t('dangerZone')} ⚠️
@@ -4038,6 +4050,34 @@ async function updateVisibility(isPublic) {
         status.innerText = !isPublic ? '${t('public')}' : '${t('private')}';
     }
 }
+<!-- Modal changement email -->
+<div id="email-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
+  <div class="popup-card" style="max-width:350px;">
+    <h3 style="color:#ff416c;">Modifier l'email</h3>
+    <div class="input-label">Nouvel email</div>
+    <input type="email" id="new-email" class="input-box">
+    <div class="input-label">Mot de passe actuel</div>
+    <input type="password" id="email-password" class="input-box">
+    <button onclick="updateEmail()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
+    <button onclick="closeEmailModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
+  </div>
+</div>
+
+<!-- Modal changement mot de passe -->
+<div id="password-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
+  <div class="popup-card" style="max-width:350px;">
+    <h3 style="color:#ff416c;">Modifier le mot de passe</h3>
+    <div class="input-label">Mot de passe actuel</div>
+    <input type="password" id="current-password" class="input-box">
+    <div class="input-label">Nouveau mot de passe</div>
+    <input type="password" id="new-password" class="input-box">
+    <div class="input-label">Confirmer le nouveau mot de passe</div>
+    <input type="password" id="confirm-new-password" class="input-box">
+    <button onclick="updatePassword()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
+    <button onclick="closePasswordModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
+  </div>
+</div>
+
 function showChangeEmailModal() { 
   document.getElementById('email-modal').style.display = 'flex'; 
 }
@@ -4120,6 +4160,7 @@ async function updatePassword() {
     showNotify("Erreur réseau", "error"); 
   }
 }
+// ===== FIN AJOUT =====
 </script>
 </body>
 </html>`);
@@ -4933,85 +4974,6 @@ app.get('/api/get-temp-signup', async (req, res) => {
     });
   } catch(error) {
     res.json({ email: null, passwordHash: null });
-  }
-});
-// ============================================
-// API - MODIFIER EMAIL
-// ============================================
-app.put('/api/user/update-email', requireAuth, async (req, res) => {
-  try {
-    const { newEmail, password } = req.body;
-    const userId = req.session.userId;
-
-    if (!newEmail || !password) {
-      return res.status(400).json({ error: "Tous les champs sont requis" });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
-
-    const isValid = await bcrypt.compare(password, user.passwordHash);
-    if (!isValid) {
-      return res.status(401).json({ error: "Mot de passe incorrect" });
-    }
-
-    const existingUser = await User.findOne({ email: newEmail });
-    if (existingUser && existingUser._id.toString() !== userId) {
-      return res.status(400).json({ error: "Cet email est déjà utilisé" });
-    }
-
-    const emailRegex = /^[^\s@]+@([^\s@]+\.)+[^\s@]+$/;
-    if (!emailRegex.test(newEmail)) {
-      return res.status(400).json({ error: "Format d'email invalide" });
-    }
-
-    user.email = newEmail;
-    await user.save();
-
-    res.json({ success: true, message: "Email modifié avec succès" });
-
-  } catch(error) {
-    console.error(error);
-    res.status(500).json({ error: "Erreur lors de la modification" });
-  }
-});
-
-// ============================================
-// API - MODIFIER MOT DE PASSE
-// ============================================
-app.put('/api/user/update-password', requireAuth, async (req, res) => {
-  try {
-    const { currentPassword, newPassword, confirmPassword } = req.body;
-    const userId = req.session.userId;
-
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ error: "Tous les champs sont requis" });
-    }
-
-    if (newPassword !== confirmPassword) {
-      return res.status(400).json({ error: "Les mots de passe ne correspondent pas" });
-    }
-
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: "Le mot de passe doit contenir au moins 6 caractères" });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
-
-    const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
-    if (!isValid) {
-      return res.status(401).json({ error: "Mot de passe actuel incorrect" });
-    }
-
-    user.passwordHash = await bcrypt.hash(newPassword, 10);
-    await user.save();
-
-    res.json({ success: true, message: "Mot de passe modifié avec succès" });
-
-  } catch(error) {
-    console.error(error);
-    res.status(500).json({ error: "Erreur lors de la modification" });
   }
 });
 // ============================================
