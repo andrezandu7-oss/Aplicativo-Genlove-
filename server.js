@@ -4019,7 +4019,10 @@ app.get('/settings', requireAuth, async (req, res) => {
     <div class="input-label">Nouvel email</div>
     <input type="email" id="new-email" class="input-box">
     <div class="input-label">Mot de passe actuel</div>
-    <input type="password" id="email-password" class="input-box">
+    <div style="position: relative;">
+      <input type="password" id="email-password" class="input-box" style="padding-right: 45px;">
+      <span onclick="togglePassword('email-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+    </div>
     <button onclick="updateEmail()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
     <button onclick="closeEmailModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
   </div>
@@ -4029,11 +4032,20 @@ app.get('/settings', requireAuth, async (req, res) => {
   <div class="popup-card" style="max-width:350px;">
     <h3 style="color:#ff416c;">Modifier le mot de passe</h3>
     <div class="input-label">Mot de passe actuel</div>
-    <input type="password" id="current-password" class="input-box">
+    <div style="position: relative;">
+      <input type="password" id="current-password" class="input-box" style="padding-right: 45px;">
+      <span onclick="togglePassword('current-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+    </div>
     <div class="input-label">Nouveau mot de passe</div>
-    <input type="password" id="new-password" class="input-box">
+    <div style="position: relative;">
+      <input type="password" id="new-password" class="input-box" style="padding-right: 45px;">
+      <span onclick="togglePassword('new-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+    </div>
     <div class="input-label">Confirmer le nouveau mot de passe</div>
-    <input type="password" id="confirm-new-password" class="input-box">
+    <div style="position: relative;">
+      <input type="password" id="confirm-new-password" class="input-box" style="padding-right: 45px;">
+      <span onclick="togglePassword('confirm-new-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+    </div>
     <button onclick="updatePassword()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
     <button onclick="closePasswordModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
   </div>
@@ -4162,6 +4174,15 @@ async function updatePassword() {
     showNotify("Erreur réseau", "error"); 
   }
 }
+
+function togglePassword(fieldId) {
+  const field = document.getElementById(fieldId);
+  if (field.type === "password") {
+    field.type = "text";
+  } else {
+    field.type = "password";
+  }
+}
 </script>
 </body>
 </html>`);
@@ -4169,7 +4190,9 @@ async function updatePassword() {
         console.error(error);
         res.status(500).send('Erreur paramètres');
     }
-});// ============================================
+});
+
+// ============================================
 // ============================================
 // EDIT PROFILE - AVEC TRADUCTIONS COMPLÈTES
 // ============================================
