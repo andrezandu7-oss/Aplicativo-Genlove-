@@ -4504,20 +4504,29 @@ app.post('/api/login', async (req, res) => {
   }
 });
 app.post('/api/register', async (req, res) => {
-    try {
-        const user = new User(req.body);
-        await user.save();
-        
-        req.session.userId = user._id;
-        req.session.isVerified = false;
-        await new Promise(resolve => req.session.save(resolve));
-        
-        res.json({ success: true });
-    } catch(e) {
-        res.status(500).json({ error: e.message });
-    }
+  try {
+    const userData = req.body;
+    
+    // Si l'email existe déjà, on ne fait rien de spécial
+    const user = new User(userData);
+    await user.save();
+    
+    req.session.userId = user._id;
+    req.session.isVerified = false;
+    await new Promise(resolve => req.session.save(resolve));
+    
+    console.log("✅ Utilisateur créé:", { 
+      id: user._id, 
+      email: user.email, 
+      hasPassword: !!user.passwordHash 
+    });
+    
+    res.json({ success: true });
+  } catch(e) {
+    console.error("Erreur register:", e);
+    res.status(500).json({ error: e.message });
+  }
 });
-
 app.post('/api/requests', requireAuth, async (req, res) => {
     try {
         const { receiverId } = req.body;
