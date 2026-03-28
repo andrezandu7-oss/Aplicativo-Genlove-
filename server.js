@@ -148,6 +148,27 @@ const translations = {
         male: 'Homme',
         female: 'Femme',
         dob: 'Date de naissance',
+email: 'Email',
+password: 'Mot de passe',
+confirmPassword: 'Confirmer le mot de passe',
+currentPassword: 'Mot de passe actuel',
+newPassword: 'Nouveau mot de passe',
+confirmNewPassword: 'Confirmer le nouveau mot de passe',
+updateEmail: 'Modifier l\'email',
+updatePassword: 'Modifier le mot de passe',
+enterEmail: 'Entrez votre email',
+enterPassword: 'Entrez votre mot de passe',
+enterConfirmPassword: 'Confirmez votre mot de passe',
+passwordMinLength: 'Le mot de passe doit contenir au moins 6 caractères',
+passwordsDoNotMatch: 'Les mots de passe ne correspondent pas',
+invalidEmail: 'Format d\'email invalide',
+emailAlreadyUsed: 'Cet email est déjà utilisé',
+emailUpdated: 'Email modifié avec succès',
+passwordUpdated: 'Mot de passe modifié avec succès',
+currentPasswordIncorrect: 'Mot de passe actuel incorrect',
+allFieldsRequired: 'Veuillez remplir tous les champs',
+updating: 'Modification en cours...',
+networkError: 'Erreur réseau’
         city: 'Ville de résidence',
         region: 'Région',
         allRegions: 'Toutes les régions',
@@ -319,6 +340,27 @@ const translations = {
         male: 'Male',
         female: 'Female',
         dob: 'Date of birth',
+email: 'Email',
+password: 'Password',
+confirmPassword: 'Confirm password',
+currentPassword: 'Current password',
+newPassword: 'New password',
+confirmNewPassword: 'Confirm new password',
+updateEmail: 'Update email',
+updatePassword: 'Update password',
+enterEmail: 'Enter your email',
+enterPassword: 'Enter your password',
+enterConfirmPassword: 'Confirm your password',
+passwordMinLength: 'Password must be at least 6 characters',
+passwordsDoNotMatch: 'Passwords do not match',
+invalidEmail: 'Invalid email format',
+emailAlreadyUsed: 'This email is already used',
+emailUpdated: 'Email updated successfully',
+passwordUpdated: 'Password updated successfully',
+currentPasswordIncorrect: 'Current password is incorrect',
+allFieldsRequired: 'Please fill in all fields',
+updating: 'Updating...',
+networkError: 'Network error’
         city: 'City of residence',
         region: 'Region',
         allRegions: 'All regions',
@@ -490,6 +532,27 @@ const translations = {
         male: 'Homem',
         female: 'Mulher',
         dob: 'Data de nascimento',
+email: 'Email',
+password: 'Senha',
+confirmPassword: 'Confirmar senha',
+currentPassword: 'Senha atual',
+newPassword: 'Nova senha',
+confirmNewPassword: 'Confirmar nova senha',
+updateEmail: 'Alterar email',
+updatePassword: 'Alterar senha',
+enterEmail: 'Digite seu email',
+enterPassword: 'Digite sua senha',
+enterConfirmPassword: 'Confirme sua senha',
+passwordMinLength: 'A senha deve ter pelo menos 6 caracteres',
+passwordsDoNotMatch: 'As senhas não coincidem',
+invalidEmail: 'Formato de email inválido',
+emailAlreadyUsed: 'Este email já está em uso',
+emailUpdated: 'Email alterado com sucesso',
+passwordUpdated: 'Senha alterada com sucesso',
+currentPasswordIncorrect: 'Senha atual incorreta',
+allFieldsRequired: 'Por favor, preencha todos os campos',
+updating: 'Alterando...',
+networkError: 'Erro de rede’
         city: 'Cidade de residência',
         region: 'Região',
         allRegions: 'Todas as regiões',
@@ -661,6 +724,27 @@ const translations = {
         male: 'Hombre',
         female: 'Mujer',
         dob: 'Fecha de nacimiento',
+email: 'Correo electrónico',
+password: 'Contraseña',
+confirmPassword: 'Confirmar contraseña',
+currentPassword: 'Contraseña actual',
+newPassword: 'Nueva contraseña',
+confirmNewPassword: 'Confirmar nueva contraseña',
+updateEmail: 'Modificar correo',
+updatePassword: 'Modificar contraseña',
+enterEmail: 'Ingrese su correo',
+enterPassword: 'Ingrese su contraseña',
+enterConfirmPassword: 'Confirme su contraseña',
+passwordMinLength: 'La contraseña debe tener al menos 6 caracteres',
+passwordsDoNotMatch: 'Las contraseñas no coinciden',
+invalidEmail: 'Formato de correo inválido',
+emailAlreadyUsed: 'Este correo ya está en uso',
+emailUpdated: 'Correo modificado con éxito',
+passwordUpdated: 'Contraseña modificada con éxito',
+currentPasswordIncorrect: 'Contraseña actual incorrecta',
+allFieldsRequired: 'Por favor, complete todos los campos',
+updating: 'Modificando...',
+networkError: 'Error de red’
         city: 'Ciudad de residencia',
         region: 'Región',
         allRegions: 'Todas las regiones',
@@ -832,6 +916,27 @@ const translations = {
         male: 'ذكر',
         female: 'أنثى',
         dob: 'تاريخ الميلاد',
+email: 'البريد الإلكتروني',
+password: 'كلمة المرور',
+confirmPassword: 'تأكيد كلمة المرور',
+currentPassword: 'كلمة المرور الحالية',
+newPassword: 'كلمة المرور الجديدة',
+confirmNewPassword: 'تأكيد كلمة المرور الجديدة',
+updateEmail: 'تعديل البريد الإلكتروني',
+updatePassword: 'تعديل كلمة المرور',
+enterEmail: 'أدخل بريدك الإلكتروني',
+enterPassword: 'أدخل كلمة المرور',
+enterConfirmPassword: 'تأكيد كلمة المرور',
+passwordMinLength: 'يجب أن تتكون كلمة المرور من 6 أحرف على الأقل',
+passwordsDoNotMatch: 'كلمات المرور غير متطابقة',
+invalidEmail: 'صيغة البريد الإلكتروني غير صالحة',
+emailAlreadyUsed: 'هذا البريد الإلكتروني مستخدم بالفعل',
+emailUpdated: 'تم تعديل البريد الإلكتروني بنجاح',
+passwordUpdated: 'تم تعديل كلمة المرور بنجاح',
+currentPasswordIncorrect: 'كلمة المرور الحالية غير صحيحة',
+allFieldsRequired: 'يرجى ملء جميع الحقول',
+updating: 'جاري التعديل...',
+networkError: 'خطأ في الشبكة’
         city: 'مدينة الإقامة',
         region: 'المنطقة',
         allRegions: 'جميع المناطق',
@@ -1003,6 +1108,27 @@ const translations = {
         male: '男',
         female: '女',
         dob: '出生日期',
+email: '电子邮件',
+password: '密码',
+confirmPassword: '确认密码',
+currentPassword: '当前密码',
+newPassword: '新密码',
+confirmNewPassword: '确认新密码',
+updateEmail: '修改电子邮件',
+updatePassword: '修改密码',
+enterEmail: '请输入电子邮件',
+enterPassword: '请输入密码',
+enterConfirmPassword: '请确认密码',
+passwordMinLength: '密码必须至少6个字符',
+passwordsDoNotMatch: '密码不匹配',
+invalidEmail: '电子邮件格式无效',
+emailAlreadyUsed: '此电子邮件已被使用',
+emailUpdated: '电子邮件修改成功',
+passwordUpdated: '密码修改成功',
+currentPasswordIncorrect: '当前密码错误',
+allFieldsRequired: '请填写所有字段',
+updating: '修改中...',
+networkError: '网络错误’
         city: '居住城市',
         region: '地区',
         allRegions: '所有地区',
@@ -2064,10 +2190,10 @@ app.get('/', (req, res) => {
 
 // ============================================
 // PAGE DE CONNEXION - EMAIL ET MOT DE PASSE
-// ============================================
+
 app.get('/login', (req, res) => {
   const t = req.t;
-  
+
   res.send(`<!DOCTYPE html>
 <html>
 <head>
@@ -2081,23 +2207,23 @@ app.get('/login', (req, res) => {
   <div class="app-shell">
     <div class="page-white">
       <h2 style="text-align: center;">${t('loginTitle')}</h2>
-      <p style="text-align: center; margin-bottom: 20px;">Connectez-vous avec votre email et mot de passe</p>
+      <p style="text-align: center; margin-bottom: 20px;">${t('enterEmail')}</p>
       
       <form id="loginForm">
-        <div class="input-label">Email</div>
-        <input type="email" id="email" class="input-box" placeholder="votre@email.com" required>
+        <div class="input-label">${t('email')}</div>
+        <input type="email" id="email" class="input-box" placeholder="${t('enterEmail')}" required>
         
-        <div class="input-label">Mot de passe</div>
-<div style="position: relative;">
-  <input type="password" id="password" class="input-box" placeholder="••••••" required style="padding-right: 45px;">
-  <span onclick="togglePassword('password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
-</div>
+        <div class="input-label">${t('password')}</div>
+        <div style="position: relative;">
+          <input type="password" id="password" class="input-box" placeholder="${t('enterPassword')}" required style="padding-right: 45px;">
+          <span onclick="togglePassword('password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+        </div>
         
         <button type="submit" class="btn-pink">${t('login')}</button>
       </form>
       
       <div style="text-align: center; margin-top: 20px;">
-        <a href="/signup-email" class="back-link">Pas encore de compte ? Créer un compte</a>
+        <a href="/signup-email" class="back-link">${t('createAccount')}</a>
       </div>
       
       <a href="/" class="back-link">← ${t('backHome')}</a>
@@ -2123,11 +2249,11 @@ app.get('/login', (req, res) => {
       const password = document.getElementById('password').value;
       
       if (!email || !password) {
-        showNotify("Veuillez remplir tous les champs", "error");
+        showNotify("${t('allFieldsRequired')}", "error");
         return;
       }
       
-      showNotify("Connexion en cours...", "info");
+      showNotify("${t('updating')}", "info");
       
       try {
         const response = await fetch('/api/login', {
@@ -2139,23 +2265,24 @@ app.get('/login', (req, res) => {
         const data = await response.json();
         
         if (data.success) {
-          showNotify("✅ Connexion réussie !", "success");
+          showNotify("${t('loginSuccess') || 'Connexion réussie !'}", "success");
           setTimeout(() => window.location.href = '/profile', 1000);
         } else {
-          showNotify(data.error || "❌ Échec de connexion", "error");
+          showNotify(data.error || "${t('loginError') || 'Échec de connexion'}", "error");
         }
       } catch(e) {
-        showNotify("❌ Erreur réseau", "error");
+        showNotify("${t('networkError')}", "error");
       }
     });
-function togglePassword(fieldId) {
-  const field = document.getElementById(fieldId);
-  if (field.type === "password") {
-    field.type = "text";
-  } else {
-    field.type = "password";
-  }
-}
+    
+    function togglePassword(fieldId) {
+      const field = document.getElementById(fieldId);
+      if (field.type === "password") {
+        field.type = "text";
+      } else {
+        field.type = "password";
+      }
+    }
   </script>
 </body>
 </html>`);
@@ -5107,6 +5234,7 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
+
 
 
 
