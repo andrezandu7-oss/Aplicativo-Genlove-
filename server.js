@@ -5017,7 +5017,7 @@ app.put('/api/user/update-email', requireAuth, async (req, res) => {
   }
 });
 
-//  ============================================
+// ============================================
 // API - MODIFIER MOT DE PASSE
 // ============================================
 app.put('/api/user/update-password', requireAuth, async (req, res) => {
@@ -5054,7 +5054,9 @@ app.put('/api/user/update-password', requireAuth, async (req, res) => {
     console.error(error);
     res.status(500).json({ error: "Erreur lors de la modification" });
   }
-});// ============================================
+});
+
+// ============================================
 // DÉMARRAGE
 // ============================================
 app.listen(port, '0.0.0.0', () => {
