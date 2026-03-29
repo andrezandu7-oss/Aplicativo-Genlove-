@@ -3985,11 +3985,11 @@ app.get('/settings', requireAuth, async (req, res) => {
 </div>
 <div class="st-group">
   <div class="st-item" onclick="showChangeEmailModal()" style="cursor:pointer;">
-    <span>📧 Modifier l'email</span>
+    <span>📧 Alterar email</span>
     <b>✎</b>
   </div>
   <div class="st-item" onclick="showChangePasswordModal()" style="cursor:pointer;">
-    <span>🔒 Modifier le mot de passe</span>
+    <span>🔒 Alterar a senha</span>
     <b>✎</b>
   </div>
 </div>
@@ -4016,38 +4016,38 @@ app.get('/settings', requireAuth, async (req, res) => {
 <div id="email-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
   <div class="popup-card" style="max-width:350px;">
     <h3 style="color:#ff416c;">Modifier l'email</h3>
-    <div class="input-label">Nouvel email</div>
+    <div class="input-label">Novo email</div>
     <input type="email" id="new-email" class="input-box">
-    <div class="input-label">Mot de passe actuel</div>
+    <div class="input-label">Senha atual</div>
     <div style="position: relative;">
       <input type="password" id="email-password" class="input-box" style="padding-right: 45px;">
       <span onclick="togglePassword('email-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
     </div>
-    <button onclick="updateEmail()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
-    <button onclick="closeEmailModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
+    <button onclick="updateEmail()" class="btn-pink" style="margin-top:15px;">Confirmar</button>
+    <button onclick="closeEmailModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Cancelar</button>
   </div>
 </div>
 
 <div id="password-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
   <div class="popup-card" style="max-width:350px;">
-    <h3 style="color:#ff416c;">Modifier le mot de passe</h3>
-    <div class="input-label">Mot de passe actuel</div>
+    <h3 style="color:#ff416c;">Alterar a senha</h3>
+    <div class="input-label">Senha atual</div>
     <div style="position: relative;">
       <input type="password" id="current-password" class="input-box" style="padding-right: 45px;">
       <span onclick="togglePassword('current-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
     </div>
-    <div class="input-label">Nouveau mot de passe</div>
+    <div class="input-label">Nova Senha</div>
     <div style="position: relative;">
       <input type="password" id="new-password" class="input-box" style="padding-right: 45px;">
       <span onclick="togglePassword('new-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
     </div>
-    <div class="input-label">Confirmer le nouveau mot de passe</div>
+    <div class="input-label">Confirmar a nova senha</div>
     <div style="position: relative;">
       <input type="password" id="confirm-new-password" class="input-box" style="padding-right: 45px;">
       <span onclick="togglePassword('confirm-new-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
     </div>
-    <button onclick="updatePassword()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
-    <button onclick="closePasswordModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
+    <button onclick="updatePassword()" class="btn-pink" style="margin-top:15px;">Confirmar</button>
+    <button onclick="closePasswordModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Cancelar</button>
   </div>
 </div>
 <!-- ========== FIN MODALS ========== -->
@@ -4910,7 +4910,7 @@ app.post('/api/validate-genotype-qr', async (req, res) => {
     
     // ✅ Correction : split('|') au lieu de split('!')
     const parts = qrData.split('|').map(s => s.trim());
-    
+ 
     // ✅ NOUVEAU FORMAT : 7 campos (numero + 5 dados + assinatura)
     if (parts.length !== 7) {
       return res.status(400).json({ error: 'Formato de QR inválido' });
@@ -5107,6 +5107,7 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
+
 
 
 
