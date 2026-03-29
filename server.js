@@ -2088,10 +2088,7 @@ app.get('/login', (req, res) => {
         <input type="email" id="email" class="input-box" placeholder="votre@email.com" required>
         
         <div class="input-label">Mot de passe</div>
-<div style="position: relative;">
-  <input type="password" id="password" class="input-box" placeholder="••••••" required style="padding-right: 45px;">
-  <span onclick="togglePassword('password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
-</div>
+        <input type="password" id="password" class="input-box" placeholder="••••••" required>
         
         <button type="submit" class="btn-pink">${t('login')}</button>
       </form>
@@ -2148,14 +2145,6 @@ app.get('/login', (req, res) => {
         showNotify("❌ Erreur réseau", "error");
       }
     });
-function togglePassword(fieldId) {
-  const field = document.getElementById(fieldId);
-  if (field.type === "password") {
-    field.type = "text";
-  } else {
-    field.type = "password";
-  }
-}
   </script>
 </body>
 </html>`);
@@ -3980,19 +3969,7 @@ app.get('/settings', requireAuth, async (req, res) => {
             <b>${blockedCount} ➔</b>
         </a>
     </div>
-    <div style="padding:15px 20px 5px 20px; font-size:0.75rem; color:#888; font-weight:bold;">
-  🔐 DADOS DE ACESSO
-</div>
-<div class="st-group">
-  <div class="st-item" onclick="showChangeEmailModal()" style="cursor:pointer;">
-    <span>📧 Modifier l'email</span>
-    <b>✎</b>
-  </div>
-  <div class="st-item" onclick="showChangePasswordModal()" style="cursor:pointer;">
-    <span>🔒 Modifier le mot de passe</span>
-    <b>✎</b>
-  </div>
-</div>
+    
     <div class="st-group danger-zone">
         <div class="st-item" style="color:#dc3545; font-weight:bold; justify-content:center;">
             ⚠️ ${t('dangerZone')} ⚠️
@@ -4009,33 +3986,6 @@ app.get('/settings', requireAuth, async (req, res) => {
     
     <a href="/profile" class="btn-pink">← ${t('backProfile')}</a>
     <a href="/logout-success" class="btn-dark" style="text-decoration:none;">${t('logout')}</a>
-</div>
-<!-- Modal changement email -->
-<div id="email-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
-  <div class="popup-card" style="max-width:350px;">
-    <h3 style="color:#ff416c;">Modifier l'email</h3>
-    <div class="input-label">Nouvel email</div>
-    <input type="email" id="new-email" class="input-box">
-    <div class="input-label">Mot de passe actuel</div>
-    <input type="password" id="email-password" class="input-box">
-    <button onclick="updateEmail()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
-    <button onclick="closeEmailModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
-  </div>
-</div>
-
-<!-- Modal changement mot de passe -->
-<div id="password-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
-  <div class="popup-card" style="max-width:350px;">
-    <h3 style="color:#ff416c;">Modifier le mot de passe</h3>
-    <div class="input-label">Mot de passe actuel</div>
-    <input type="password" id="current-password" class="input-box">
-    <div class="input-label">Nouveau mot de passe</div>
-    <input type="password" id="new-password" class="input-box">
-    <div class="input-label">Confirmer le nouveau mot de passe</div>
-    <input type="password" id="confirm-new-password" class="input-box">
-    <button onclick="updatePassword()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
-    <button onclick="closePasswordModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
-  </div>
 </div>
 
 <script>
@@ -4920,8 +4870,6 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
-
-
 
 
 
