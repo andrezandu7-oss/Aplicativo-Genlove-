@@ -2145,7 +2145,7 @@ app.get('/login', (req, res) => {
           showNotify(data.error || "❌ Échec de connexion", "error");
         }
       } catch(e) {
-        showNotify("❌ Erreur réseau", "error");
+        showNotify("❌ Erro de conexão", "error");
       }
     });
 function togglePassword(fieldId) {
@@ -2204,18 +2204,18 @@ app.get('/signup-email', (req, res) => {
         <div class="input-label">Email</div>
         <input type="email" id="email" class="input-box" placeholder="seu@email.com" required>
         
-        <div class="input-label">Mot de passe</div>
+        <div class="input-label">Senha</div>
 <div style="position: relative;">
   <input type="password" id="password" class="input-box" placeholder="•••••• (mínimo 6 caráctères)" required style="padding-right: 45px;">
   <span onclick="togglePassword('password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
 </div>
 
-<div class="input-label">Confirme a senha</div>
+<div class="input-label">Confirmar a senha</div>
 <div style="position: relative;">
   <input type="password" id="confirmPassword" class="input-box" placeholder="••••••" required style="padding-right: 45px;">
   <span onclick="togglePassword('confirmPassword')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
 </div>        
-        <button type="submit" class="btn-pink">Continuar e prosseguir para a carta de honra →</button>
+        <button type="submit" class="btn-pink">Prosseguir para a carta de honra →</button>
       </form>
       
       <a href="/" class="back-link">← Voltar para a página inicial </a>
@@ -4106,10 +4106,10 @@ async function updateEmail() {
   const newEmail = document.getElementById('new-email').value;
   const password = document.getElementById('email-password').value;
   if (!newEmail || !password) { 
-    showNotify("Veuillez remplir tous les champs", "error"); 
+    showNotify("Preencha todos os campos", "error"); 
     return; 
   }
-  showNotify("Modification en cours...", "info");
+  showNotify("Atualizando...", "info");
   try {
     const response = await fetch('/api/user/update-email', { 
       method: 'PUT', 
