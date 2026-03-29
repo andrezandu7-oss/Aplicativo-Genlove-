@@ -1,11 +1,14 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const session = require('express-session');
-const MongoStore = require('connect-mongo');
+const MongoStore = require('connect-mongo')
+const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const app = express();
 
 console.log("🚀 Serveur en cours de démarrage...");
 const port = process.env.PORT || 3000;
+
 
 // ====================== CONEXÃO MONGODB ======================
 const mongouRI = process.env.MONGODB_URI || 'mongodb://localhost:27017/genlove';
@@ -44,29 +47,31 @@ app.use(session(sessionConfig));
 // ============================================
 
 const userSchema = new mongoose.Schema({
-    firstName: { type: String, required: true },
-    lastName: { type: String, required: true },
-    gender: String,
-    dob: String,
-    residence: String,
-    region: { type: String, default: "" },
-    genotype: { type: String, enum: ['AA', 'AS', 'SS'] },
-    bloodGroup: String,
-    desireChild: String,
-    photo: String,
-    language: { type: String, default: 'fr' },
-    isVerified: { type: Boolean, default: false },
-    isPublic: { type: Boolean, default: true },
-    blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-    blockedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-    rejectedRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-    createdAt: { type: Date, default: Date.now },
-    qrVerified: { type: Boolean, default: false },
-    verifiedBy: String,
-    verifiedAt: Date,
-    verificationBadge: { type: String, enum: ['none', 'self', 'lab'], default: 'none' }
+  firstName: { type: String, required: true },
+  lastName: { type: String, required: true },
+  gender: String,
+  dob: String,
+  residence: String,
+  region: { type: String, default: "" },
+  genotype: { type: String, enum: ['AA', 'AS', 'SS'] },
+  bloodGroup: String,
+  desireChild: String,
+  photo: String,
+  language: { type: String, default: 'fr' },
+  isVerified: { type: Boolean, default: false },
+  isPublic: { type: Boolean, default: true },
+  blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  blockedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  rejectedRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  createdAt: { type: Date, default: Date.now },
+  qrVerified: { type: Boolean, default: false },
+  verifiedBy: String,
+  verifiedAt: Date,
+  verificationBadge: { type: String, enum: ['none', 'self', 'lab'], default: 'none' },
+  // NOUVEAUX CHAMPS POUR EMAIL ET MOT DE PASSE
+  email: { type: String, unique: true, sparse: true },
+  passwordHash: { type: String }
 });
-
 const messageSchema = new mongoose.Schema({
     senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     receiverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -2028,8 +2033,7 @@ app.get('/', (req, res) => {
             
             <div style="font-size:1.1rem; color:#1a2a44; margin:20px 0 10px;">${t('haveAccount')}</div>
             <a href="/login" class="btn-dark">${t('login')}</a>
-            <a href="/charte-engagement" class="btn-pink">${t('createAccount')}</a>
-            <div style="margin-top:30px; font-size:0.9rem; color:#666;">${t('security')}</div>
+            <a href="/signup-email" class="btn-pink">${t('createAccount')}</a>            <div style="margin-top:30px; font-size:0.9rem; color:#666;">${t('security')}</div>
         </div>
     </div>
     
@@ -2059,61 +2063,267 @@ app.get('/', (req, res) => {
 });
 
 // ============================================
-// LOGIN
+// PAGE DE CONNEXION - EMAIL ET MOT DE PASSE
 // ============================================
 app.get('/login', (req, res) => {
-    const t = req.t;
-    res.send(`<!DOCTYPE html>
+  const t = req.t;
+  
+  res.send(`<!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-    <title>${t('appName')} - ${t('loginTitle')}</title>
-    ${styles}
-    ${notifyScript}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+  <title>${t('appName')} - ${t('loginTitle')}</title>
+  ${styles}
+  ${notifyScript}
 </head>
 <body>
-    <div class="app-shell">
-        <div class="page-white">
-            <h2>${t('loginTitle')}</h2>
-            <p style="font-size: 1.2rem; margin: 20px 0;">${t('enterName')}</p>
-            <form id="loginForm">
-                <input type="text" id="firstName" class="input-box" placeholder="${t('yourName')}" required>
-                <button type="submit" class="btn-pink">${t('login')}</button>
-            </form>
-            <a href="/" class="back-link">← ${t('backHome')}</a>
-        </div>
+  <div class="app-shell">
+    <div class="page-white">
+      <h2 style="text-align: center;">${t('loginTitle')}</h2>
+      <p style="text-align: center; margin-bottom: 20px;">Conectar-se com sua palavra passe</p>
+      
+      <form id="loginForm">
+        <div class="input-label">Email</div>
+        <input type="email" id="email" class="input-box" placeholder="seu@email.com" required>
+        
+        <div class="input-label">palavra passe</div>
+<div style="position: relative;">
+  <input type="password" id="password" class="input-box" placeholder="••••••" required style="padding-right: 45px;">
+  <span onclick="togglePassword('password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+</div>
+        
+        <button type="submit" class="btn-pink">${t('login')}</button>
+      </form>
+      
+      <div style="text-align: center; margin-top: 20px;">
+        <a href="/signup-email" class="back-link">Ainda não tens conta? Criar conta</a>
+      </div>
+      
+      <a href="/" class="back-link">← ${t('backHome')}</a>
     </div>
-    <script>
-        document.getElementById('loginForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            const firstName = document.getElementById('firstName').value;
-            const res = await fetch('/api/login', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({firstName})
-            });
-            if (res.ok) window.location.href = '/profile';
-            else alert('${t('nameNotFound')}');
+  </div>
+  
+  <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
+  
+  <script>
+    function showNotify(msg, type) {
+      const notify = document.getElementById('genlove-notify');
+      const msgSpan = document.getElementById('notify-msg');
+      msgSpan.innerText = msg;
+      notify.style.backgroundColor = type === 'success' ? '#4CAF50' : '#dc3545';
+      notify.classList.add('show');
+      setTimeout(() => notify.classList.remove('show'), 3000);
+    }
+    
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      
+      if (!email || !password) {
+        showNotify("Preencha todos os campos, por favor", "error");
+        return;
+      }
+      
+      showNotify("Conectando...", "info");
+      
+      try {
+        const response = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
         });
         
-        document.getElementById('firstName').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                document.getElementById('loginForm').requestSubmit();
-            }
-        });
-    </script>
+        const data = await response.json();
+        
+        if (data.success) {
+          showNotify("✅ Conectado com sucesso!", "success");
+          setTimeout(() => window.location.href = '/profile', 1000);
+        } else {
+          showNotify(data.error || "❌ Échec de connexion", "error");
+        }
+      } catch(e) {
+        showNotify("❌ Erreur réseau", "error");
+      }
+    });
+function togglePassword(fieldId) {
+  const field = document.getElementById(fieldId);
+  if (field.type === "password") {
+    field.type = "text";
+  } else {
+    field.type = "password";
+  }
+}
+  </script>
 </body>
 </html>`);
 });
 
 // ============================================
+// PAGE D'INSCRIPTION - EMAIL ET MOT DE PASSE
+// ============================================
+app.get('/signup-email', (req, res) => {
+  const t = req.t;
+  
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+  <title>${t('appName')} - Criar a minha conta</title>
+  ${styles}
+  ${notifyScript}
+  <style>
+    .info-message {
+      background: #e3f2fd;
+      padding: 15px;
+      border-radius: 15px;
+      margin: 20px 0;
+      border-left: 5px solid #2196f3;
+    }
+    .info-message p {
+      margin: 0;
+      font-size: 0.9rem;
+      color: #0d47a1;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="page-white">
+      <h2 style="color:#ff416c;">Criar a minha conta</h2>
+      <p style="margin-bottom: 20px;">Insira o seu email e senha para criar a sua conta   Genlove.</p>
+      
+      <div class="info-message">
+        <p>📧 Um email de confirmação será enviado após a aceitação do termo de honra .</p>
+      </div>
+      
+      <form id="signupForm">
+        <div class="input-label">Email</div>
+        <input type="email" id="email" class="input-box" placeholder="seu@email.com" required>
+        
+        <div class="input-label">Mot de passe</div>
+<div style="position: relative;">
+  <input type="password" id="password" class="input-box" placeholder="•••••• (mínimo 6 caráctères)" required style="padding-right: 45px;">
+  <span onclick="togglePassword('password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+</div>
+
+<div class="input-label">Confirme a senha</div>
+<div style="position: relative;">
+  <input type="password" id="confirmPassword" class="input-box" placeholder="••••••" required style="padding-right: 45px;">
+  <span onclick="togglePassword('confirmPassword')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+</div>        
+        <button type="submit" class="btn-pink">Continuar e prosseguir para a carta de honra →</button>
+      </form>
+      
+      <a href="/" class="back-link">← Voltar para a página inicial </a>
+    </div>
+  </div>
+  
+  <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
+  
+  <script>
+    function showNotify(msg, type) {
+      const notify = document.getElementById('genlove-notify');
+      const msgSpan = document.getElementById('notify-msg');
+      msgSpan.innerText = msg;
+      notify.style.backgroundColor = type === 'success' ? '#4CAF50' : '#dc3545';
+      notify.classList.add('show');
+      setTimeout(() => notify.classList.remove('show'), 3000);
+    }
+    
+    document.getElementById('signupForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+      
+      if (!email || !password) {
+        showNotify("Preencha todos os campos", "error");
+        return;
+      }
+      
+      if (password !== confirmPassword) {
+        showNotify("As senhas não correspondem"error");
+        return;
+      }
+      
+      if (password.length < 6) {
+        showNotify("A senha deve ter no mínimo 6 caracteres", "error");
+        return;
+      }
+      
+      // Vérification format email
+      const emailRegex = /^[^\\s@]+@([^\\s@]+\\.)+[^\\s@]+$/;
+      if (!emailRegex.test(email)) {
+        showNotify("Formato de email inválido ", "error");
+        return;
+      }
+      
+      showNotify("Verificando...", "info");
+      
+      try {
+        // Verificar se o email já existe 
+        const checkRes = await fetch('/api/check-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const checkData = await checkRes.json();
+        
+        if (checkData.exists) {
+          showNotify("Cet email est déjà utilisé", "error");
+          return;
+        }
+        
+        // Stocker les données en session temporaire
+        const tempRes = await fetch('/api/temp-signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        
+        const tempData = await tempRes.json();
+        
+        if (tempData.success) {
+          showNotify("Email validé, continuons !", "success");
+          setTimeout(() => {
+            window.location.href = '/termos de compromisso?tempId=' + tempData.tempId;
+          }, 1000);
+        } else {
+          showNotify(tempData.error || "Erreur", "error");
+        }
+      } catch(e) {
+        showNotify("Erro de conexão", "error");
+        console.error(e);
+      }
+    });
+
+function togglePassword(fieldId) {
+  const field = document.getElementById(fieldId);
+  if (field.type === "password") {
+    field.type = "text";
+  } else {
+    field.type = "password";
+  }
+}
+  </script>
+</body>
+</html>`);
+});
+// ============================================
 // CHARTE D'ENGAGEMENT
 // ============================================
 app.get('/charte-engagement', (req, res) => {
-    const t = req.t;
-    res.send(`<!DOCTYPE html>
+  const t = req.t;
+  const tempId = req.query.tempId;
+  
+  if (tempId) {
+    req.session.tempSignupId = tempId;
+  }    res.send(`<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -2679,39 +2889,60 @@ app.get('/signup-manual', (req, res) => {
         }
         
         document.getElementById('signupForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            document.getElementById('loader').style.display = 'flex';
-            
-            const day = document.querySelector('select[name="day"]').value;
-            const month = document.querySelector('select[name="month"]').value;
-            const year = document.querySelector('select[name="year"]').value;
-            
-            if (!day || !month || !year) {
-                alert('${t('dob')} ${t('required')}');
-                document.getElementById('loader').style.display = 'none';
-                return;
-            }
-            
-            const dob = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
-            
-            const userData = {
-                firstName: document.getElementById('firstName').value,
-                lastName: document.getElementById('lastName').value,
-                gender: document.getElementById('gender').value,
-                dob: dob,
-                residence: document.getElementById('residence').value,
-                region: document.getElementById('region').value,
-                genotype: document.getElementById('genotype').value,
-                bloodGroup: document.getElementById('bloodType').value + document.getElementById('bloodRh').value,
-                desireChild: document.getElementById('desireChild').value,
-                photo: photoBase64 || "",
-                language: '${req.lang}',
-                isPublic: true,
-                qrVerified: false,
-                verificationBadge: 'self'
-            };
-            
+  e.preventDefault();
+  document.getElementById('loader').style.display = 'flex';
+  
+  // ===== RÉCUPÉRER L'EMAIL TEMPORAIRE =====
+  let tempEmail = null;
+  let tempPasswordHash = null;
+  
+  try {
+    const tempRes = await fetch('/api/get-temp-signup');
+    const tempData = await tempRes.json();
+    
+    if (tempData.email) {
+      tempEmail = tempData.email;
+      tempPasswordHash = tempData.passwordHash;
+      console.log("✅ Email temporaire récupéré:", tempEmail);
+    } else {
+      console.log("⚠️ Aucun email temporaire trouvé");
+    }
+  } catch(e) {
+    console.error("Erreur récupération email temporaire:", e);
+  }
+  // ===== FIN RÉCUPÉRATION =====
+  
+  const day = document.querySelector('select[name="day"]').value;
+  const month = document.querySelector('select[name="month"]').value;
+  const year = document.querySelector('select[name="year"]').value;
+  
+  if (!day || !month || !year) {
+    alert('Date de naissance requise');
+    document.getElementById('loader').style.display = 'none';
+    return;
+  }
+  
+  const dob = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
+  
+  const userData = {
+    firstName: document.getElementById('firstName').value,
+    lastName: document.getElementById('lastName').value,
+    gender: document.getElementById('gender').value,
+    dob: dob,
+    residence: document.getElementById('residence').value,
+    region: document.getElementById('region').value,
+    genotype: document.getElementById('genotype').value,
+    bloodGroup: document.getElementById('bloodType').value + document.getElementById('bloodRh').value,
+    desireChild: document.getElementById('desireChild').value,
+    photo: photoBase64 || "",
+    language: 'fr',
+    isPublic: true,
+    qrVerified: false,
+    verificationBadge: 'self',
+    // ===== AJOUTER EMAIL ET MOT DE PASSE =====
+    email: tempEmail,
+    passwordHash: tempPasswordHash
+  };            
             try {
                 const res = await fetch('/api/register', {
                     method: 'POST',
@@ -3749,24 +3980,77 @@ app.get('/settings', requireAuth, async (req, res) => {
             <b>${blockedCount} ➔</b>
         </a>
     </div>
-    
-    <div class="st-group danger-zone">
-        <div class="st-item" style="color:#dc3545; font-weight:bold; justify-content:center;">
-            ⚠️ ${t('dangerZone')} ⚠️
-        </div>
-        <div style="padding:20px; text-align:center;">
-            <p style="color:#666; margin-bottom:20px; font-size:0.95rem;">
-                ${t('deleteAccount')}
-            </p>
-            <button id="deleteBtn" class="btn-action btn-block" style="background:#dc3545; color:white; padding:15px; width:100%; font-size:1.1rem;" onclick="showDeleteConfirmation()">
-                🗑️ ${t('delete')}
-            </button>
-        </div>
-    </div>
-    
-    <a href="/profile" class="btn-pink">← ${t('backProfile')}</a>
-    <a href="/logout-success" class="btn-dark" style="text-decoration:none;">${t('logout')}</a>
+    <div style="padding:15px 20px 5px 20px; font-size:0.75rem; color:#888; font-weight:bold;">
+  🔐 DADOS DE ACESSO
 </div>
+<div class="st-group">
+  <div class="st-item" onclick="showChangeEmailModal()" style="cursor:pointer;">
+    <span>📧 Modifier l'email</span>
+    <b>✎</b>
+  </div>
+  <div class="st-item" onclick="showChangePasswordModal()" style="cursor:pointer;">
+    <span>🔒 Modifier le mot de passe</span>
+    <b>✎</b>
+  </div>
+</div>
+
+<div class="st-group danger-zone">
+  <div class="st-item" style="color:#dc3545; font-weight:bold; justify-content:center;">
+    ⚠️ ${t('dangerZone')} ⚠️
+  </div>
+  <div style="padding:20px; text-align:center;">
+    <p style="color:#666; margin-bottom:20px; font-size:0.95rem;">
+      ${t('deleteAccount')}
+    </p>
+    <button id="deleteBtn" class="btn-action btn-block" style="background:#dc3545; color:white; padding:15px; width:100%; font-size:1.1rem;" onclick="showDeleteConfirmation()">
+      🗑️ ${t('delete')}
+    </button>
+  </div>
+</div>
+
+<a href="/profile" class="btn-pink">← ${t('backProfile')}</a>
+<a href="/logout-success" class="btn-dark" style="text-decoration:none;">${t('logout')}</a>
+</div>
+
+<!-- ========== MODALS ========== -->
+<div id="email-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
+  <div class="popup-card" style="max-width:350px;">
+    <h3 style="color:#ff416c;">Modifier l'email</h3>
+    <div class="input-label">Nouvel email</div>
+    <input type="email" id="new-email" class="input-box">
+    <div class="input-label">Mot de passe actuel</div>
+    <div style="position: relative;">
+      <input type="password" id="email-password" class="input-box" style="padding-right: 45px;">
+      <span onclick="togglePassword('email-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+    </div>
+    <button onclick="updateEmail()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
+    <button onclick="closeEmailModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
+  </div>
+</div>
+
+<div id="password-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
+  <div class="popup-card" style="max-width:350px;">
+    <h3 style="color:#ff416c;">Modifier le mot de passe</h3>
+    <div class="input-label">Mot de passe actuel</div>
+    <div style="position: relative;">
+      <input type="password" id="current-password" class="input-box" style="padding-right: 45px;">
+      <span onclick="togglePassword('current-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+    </div>
+    <div class="input-label">Nouveau mot de passe</div>
+    <div style="position: relative;">
+      <input type="password" id="new-password" class="input-box" style="padding-right: 45px;">
+      <span onclick="togglePassword('new-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+    </div>
+    <div class="input-label">Confirmer le nouveau mot de passe</div>
+    <div style="position: relative;">
+      <input type="password" id="confirm-new-password" class="input-box" style="padding-right: 45px;">
+      <span onclick="togglePassword('confirm-new-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+    </div>
+    <button onclick="updatePassword()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
+    <button onclick="closePasswordModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
+  </div>
+</div>
+<!-- ========== FIN MODALS ========== -->
 
 <script>
 function showDeleteConfirmation() {
@@ -3807,6 +4091,98 @@ async function updateVisibility(isPublic) {
         status.innerText = !isPublic ? '${t('public')}' : '${t('private')}';
     }
 }
+
+function showChangeEmailModal() { 
+  document.getElementById('email-modal').style.display = 'flex'; 
+}
+
+function closeEmailModal() { 
+  document.getElementById('email-modal').style.display = 'none'; 
+  document.getElementById('new-email').value = ''; 
+  document.getElementById('email-password').value = ''; 
+}
+
+async function updateEmail() {
+  const newEmail = document.getElementById('new-email').value;
+  const password = document.getElementById('email-password').value;
+  if (!newEmail || !password) { 
+    showNotify("Veuillez remplir tous les champs", "error"); 
+    return; 
+  }
+  showNotify("Modification en cours...", "info");
+  try {
+    const response = await fetch('/api/user/update-email', { 
+      method: 'PUT', 
+      headers: { 'Content-Type': 'application/json' }, 
+      body: JSON.stringify({ newEmail, password }) 
+    });
+    const data = await response.json();
+    if (data.success) { 
+      showNotify(data.message, "success"); 
+      closeEmailModal(); 
+      setTimeout(() => location.reload(), 2000); 
+    } else { 
+      showNotify(data.error, "error"); 
+    }
+  } catch(e) { 
+    showNotify("Erreur réseau", "error"); 
+  }
+}
+
+function showChangePasswordModal() { 
+  document.getElementById('password-modal').style.display = 'flex'; 
+}
+
+function closePasswordModal() { 
+  document.getElementById('password-modal').style.display = 'none'; 
+  document.getElementById('current-password').value = ''; 
+  document.getElementById('new-password').value = ''; 
+  document.getElementById('confirm-new-password').value = ''; 
+}
+
+async function updatePassword() {
+  const currentPassword = document.getElementById('current-password').value;
+  const newPassword = document.getElementById('new-password').value;
+  const confirmPassword = document.getElementById('confirm-new-password').value;
+  if (!currentPassword || !newPassword) { 
+    showNotify("Veuillez remplir tous les champs", "error"); 
+    return; 
+  }
+  if (newPassword !== confirmPassword) { 
+    showNotify("Les mots de passe ne correspondent pas", "error"); 
+    return; 
+  }
+  if (newPassword.length < 6) { 
+    showNotify("Le mot de passe doit contenir au moins 6 caractères", "error"); 
+    return; 
+  }
+  showNotify("Modification en cours...", "info");
+  try {
+    const response = await fetch('/api/user/update-password', { 
+      method: 'PUT', 
+      headers: { 'Content-Type': 'application/json' }, 
+      body: JSON.stringify({ currentPassword, newPassword, confirmPassword }) 
+    });
+    const data = await response.json();
+    if (data.success) { 
+      showNotify(data.message, "success"); 
+      closePasswordModal(); 
+    } else { 
+      showNotify(data.error, "error"); 
+    }
+  } catch(e) { 
+    showNotify("Erreur réseau", "error"); 
+  }
+}
+
+function togglePassword(fieldId) {
+  const field = document.getElementById(fieldId);
+  if (field.type === "password") {
+    field.type = "text";
+  } else {
+    field.type = "password";
+  }
+}
 </script>
 </body>
 </html>`);
@@ -3815,6 +4191,7 @@ async function updateVisibility(isPublic) {
         res.status(500).send('Erreur paramètres');
     }
 });
+
 // ============================================
 // ============================================
 // EDIT PROFILE - AVEC TRADUCTIONS COMPLÈTES
@@ -4292,35 +4669,60 @@ app.get('/logout-success', (req, res) => {
 // ============================================
 
 app.post('/api/login', async (req, res) => {
-    try {
-        const user = await User.findOne({ firstName: req.body.firstName }).sort({ createdAt: -1 });
-        if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
-        
-        req.session.userId = user._id;
-        req.session.isVerified = user.isVerified;
-        await new Promise(resolve => req.session.save(resolve));
-        
-        res.json({ success: true });
-    } catch(e) {
-        res.status(500).json({ error: e.message });
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email et mot de passe requis" });
     }
+    
+    const user = await User.findOne({ email });
+    
+    if (!user || !user.passwordHash) {
+      return res.status(401).json({ error: "Email ou mot de passe incorrect" });
+    }
+    
+    const isValid = await bcrypt.compare(password, user.passwordHash);
+    
+    if (!isValid) {
+      return res.status(401).json({ error: "Email ou mot de passe incorrect" });
+    }
+    
+    req.session.userId = user._id;
+    req.session.isVerified = user.isVerified;
+    await new Promise(resolve => req.session.save(resolve));
+    
+    res.json({ success: true, userId: user._id, firstName: user.firstName });
+    
+  } catch(e) {
+    console.error("Erreur login:", e);
+    res.status(500).json({ error: "Erreur lors de la connexion" });
+  }
 });
-
 app.post('/api/register', async (req, res) => {
-    try {
-        const user = new User(req.body);
-        await user.save();
-        
-        req.session.userId = user._id;
-        req.session.isVerified = false;
-        await new Promise(resolve => req.session.save(resolve));
-        
-        res.json({ success: true });
-    } catch(e) {
-        res.status(500).json({ error: e.message });
-    }
+  try {
+    const userData = req.body;
+    
+    // Si l'email existe déjà, on ne fait rien de spécial
+    const user = new User(userData);
+    await user.save();
+    
+    req.session.userId = user._id;
+    req.session.isVerified = false;
+    await new Promise(resolve => req.session.save(resolve));
+    
+    console.log("✅ Utilisateur créé:", { 
+      id: user._id, 
+      email: user.email, 
+      hasPassword: !!user.passwordHash 
+    });
+    
+    res.json({ success: true });
+  } catch(e) {
+    console.error("Erreur register:", e);
+    res.status(500).json({ error: e.message });
+  }
 });
-
 app.post('/api/requests', requireAuth, async (req, res) => {
     try {
         const { receiverId } = req.body;
@@ -4539,6 +4941,145 @@ app.post('/api/validate-genotype-qr', async (req, res) => {
 });
 
 // ============================================
+// API - VÉRIFICATION EMAIL
+// ============================================
+app.post('/api/check-email', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const existingUser = await User.findOne({ email });
+    res.json({ exists: !!existingUser });
+  } catch(error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Stockage temporaire des données email/password
+const tempSignups = new Map();
+
+app.post('/api/temp-signup', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ error: "Cet email est déjà utilisé" });
+    }
+    
+    const tempId = crypto.randomBytes(16).toString('hex');
+    
+    tempSignups.set(tempId, {
+      email,
+      passwordHash: await bcrypt.hash(password, 10),
+      expires: Date.now() + 30 * 60 * 1000
+    });
+    
+    res.json({ success: true, tempId });
+  } catch(error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+app.get('/api/get-temp-signup', async (req, res) => {
+  try {
+    const tempId = req.session.tempSignupId;
+    if (!tempId || !tempSignups.has(tempId)) {
+      return res.json({ email: null, passwordHash: null });
+    }
+    
+    const tempData = tempSignups.get(tempId);
+    if (tempData.expires < Date.now()) {
+      tempSignups.delete(tempId);
+      return res.json({ email: null, passwordHash: null });
+    }
+    
+    res.json({ 
+      email: tempData.email,
+      passwordHash: tempData.passwordHash
+    });
+  } catch(error) {
+    res.json({ email: null, passwordHash: null });
+  }
+});
+// ============================================
+// API - MODIFIER EMAIL
+// ============================================
+app.put('/api/user/update-email', requireAuth, async (req, res) => {
+  try {
+    const { newEmail, password } = req.body;
+    const userId = req.session.userId;
+
+    if (!newEmail || !password) {
+      return res.status(400).json({ error: "Tous les champs sont requis" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
+
+    const isValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: "Mot de passe incorrect" });
+    }
+
+    const existingUser = await User.findOne({ email: newEmail });
+    if (existingUser && existingUser._id.toString() !== userId) {
+      return res.status(400).json({ error: "Cet email est déjà utilisé" });
+    }
+
+    const emailRegex = /^[^\s@]+@([^\s@]+\.)+[^\s@]+$/;
+    if (!emailRegex.test(newEmail)) {
+      return res.status(400).json({ error: "Format d'email invalide" });
+    }
+
+    user.email = newEmail;
+    await user.save();
+
+    res.json({ success: true, message: "Email modifié avec succès" });
+
+  } catch(error) {
+    console.error(error);
+    res.status(500).json({ error: "Erreur lors de la modification" });
+  }
+});
+
+// ============================================
+// API - MODIFIER MOT DE PASSE
+// ============================================
+app.put('/api/user/update-password', requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+    const userId = req.session.userId;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "Tous les champs sont requis" });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ error: "Les mots de passe ne correspondent pas" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "Le mot de passe doit contenir au moins 6 caractères" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
+
+    const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: "Mot de passe actuel incorrect" });
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.json({ success: true, message: "Mot de passe modifié avec succès" });
+
+  } catch(error) {
+    console.error(error);
+    res.status(500).json({ error: "Erreur lors de la modification" });
+  }
+});
+
+// ============================================
 // DÉMARRAGE
 // ============================================
 app.listen(port, '0.0.0.0', () => {
@@ -4566,6 +5107,16 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
