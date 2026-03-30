@@ -2215,8 +2215,7 @@ app.get('/signup-email', (req, res) => {
   <input type="password" id="confirmPassword" class="input-box" placeholder="••••••" required style="padding-right: 45px;">
   <span onclick="togglePassword('confirmPassword')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
 </div>        
-        <button type="submit" class="btn-pink">Prosseguir para a carta de honra
- →</button>
+        <button type="submit" class="btn-pink">Prosseguir para a carta de honra →</button>
       </form>
       
       <a href="/" class="back-link">← Voltar para a página inicial </a>
@@ -2248,7 +2247,7 @@ app.get('/signup-email', (req, res) => {
       }
       
       if (password !== confirmPassword) {
-        showNotify("As senhas não correspondem"error");
+        showNotify("As senhas não correspondem, "error");
         return;
       }
       
@@ -5108,7 +5107,6 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
-
 
 
 
