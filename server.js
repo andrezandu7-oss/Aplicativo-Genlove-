@@ -2247,7 +2247,7 @@ app.get('/signup-email', (req, res) => {
       }
       
       if (password !== confirmPassword) {
-        showNotify("As senhas não correspondem"error");
+        showNotify("As senhas não correspondem, "error");
         return;
       }
       
