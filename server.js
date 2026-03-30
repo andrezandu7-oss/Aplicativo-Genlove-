@@ -2081,13 +2081,13 @@ app.get('/login', (req, res) => {
   <div class="app-shell">
     <div class="page-white">
       <h2 style="text-align: center;">${t('loginTitle')}</h2>
-      <p style="text-align: center; margin-bottom: 20px;">Connectez-vous avec votre email et mot de passe</p>
+      <p style="text-align: center; margin-bottom: 20px;">Conectar-se com sua palavra passe</p>
       
       <form id="loginForm">
         <div class="input-label">Email</div>
-        <input type="email" id="email" class="input-box" placeholder="votre@email.com" required>
+        <input type="email" id="email" class="input-box" placeholder="seu@email.com" required>
         
-        <div class="input-label">Mot de passe</div>
+        <div class="input-label">palavra passe</div>
 <div style="position: relative;">
   <input type="password" id="password" class="input-box" placeholder="••••••" required style="padding-right: 45px;">
   <span onclick="togglePassword('password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
@@ -2097,7 +2097,7 @@ app.get('/login', (req, res) => {
       </form>
       
       <div style="text-align: center; margin-top: 20px;">
-        <a href="/signup-email" class="back-link">Pas encore de compte ? Créer un compte</a>
+        <a href="/signup-email" class="back-link">Ainda não tens conta? Criar conta</a>
       </div>
       
       <a href="/" class="back-link">← ${t('backHome')}</a>
@@ -2123,11 +2123,11 @@ app.get('/login', (req, res) => {
       const password = document.getElementById('password').value;
       
       if (!email || !password) {
-        showNotify("Veuillez remplir tous les champs", "error");
+        showNotify("Preencha todos os campos, por favor", "error");
         return;
       }
       
-      showNotify("Connexion en cours...", "info");
+      showNotify("Conectando...", "info");
       
       try {
         const response = await fetch('/api/login', {
@@ -2139,13 +2139,13 @@ app.get('/login', (req, res) => {
         const data = await response.json();
         
         if (data.success) {
-          showNotify("✅ Connexion réussie !", "success");
+          showNotify("✅ Conectado com sucesso!", "success");
           setTimeout(() => window.location.href = '/profile', 1000);
         } else {
           showNotify(data.error || "❌ Échec de connexion", "error");
         }
       } catch(e) {
-        showNotify("❌ Erreur réseau", "error");
+        showNotify("❌ Erro de conexão", "error");
       }
     });
 function togglePassword(fieldId) {
@@ -2172,7 +2172,7 @@ app.get('/signup-email', (req, res) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-  <title>${t('appName')} - Créer mon compte</title>
+  <title>${t('appName')} - Criar a minha conta</title>
   ${styles}
   ${notifyScript}
   <style>
@@ -2193,32 +2193,33 @@ app.get('/signup-email', (req, res) => {
 <body>
   <div class="app-shell">
     <div class="page-white">
-      <h2 style="color:#ff416c;">Créer mon compte</h2>
-      <p style="margin-bottom: 20px;">Veuillez entrer votre email et mot de passe pour créer votre compte Genlove.</p>
+      <h2 style="color:#ff416c;">Criar a minha conta</h2>
+      <p style="margin-bottom: 20px;">Insira o seu email e senha para criar a sua conta   Genlove.</p>
       
       <div class="info-message">
-        <p>📧 Un email de vérification vous sera envoyé après validation de la charte d'honneur.</p>
+        <p>📧 Um email de confirmação será enviado após a aceitação do termo de honra .</p>
       </div>
       
       <form id="signupForm">
         <div class="input-label">Email</div>
-        <input type="email" id="email" class="input-box" placeholder="votre@email.com" required>
+        <input type="email" id="email" class="input-box" placeholder="seu@email.com" required>
         
-        <div class="input-label">Mot de passe</div>
+        <div class="input-label">Senha</div>
 <div style="position: relative;">
-  <input type="password" id="password" class="input-box" placeholder="•••••• (minimum 6 caractères)" required style="padding-right: 45px;">
+  <input type="password" id="password" class="input-box" placeholder="•••••• (mínimo 6 caráctères)" required style="padding-right: 45px;">
   <span onclick="togglePassword('password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
 </div>
 
-<div class="input-label">Confirmer le mot de passe</div>
+<div class="input-label">Confirmar a senha</div>
 <div style="position: relative;">
   <input type="password" id="confirmPassword" class="input-box" placeholder="••••••" required style="padding-right: 45px;">
   <span onclick="togglePassword('confirmPassword')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
-</div>        
-        <button type="submit" class="btn-pink">Continuer vers la charte →</button>
+</div>
+        
+        <button type="submit" class="btn-pink">Prosseguir para a carta de honra →</button>
       </form>
       
-      <a href="/" class="back-link">← Retour à l'accueil</a>
+      <a href="/" class="back-link">← Voltar para a página inicial </a>
     </div>
   </div>
   
@@ -2242,31 +2243,31 @@ app.get('/signup-email', (req, res) => {
       const confirmPassword = document.getElementById('confirmPassword').value;
       
       if (!email || !password) {
-        showNotify("Veuillez remplir tous les champs", "error");
+        showNotify("Preencha todos os campos", "error");
         return;
       }
       
       if (password !== confirmPassword) {
-        showNotify("Les mots de passe ne correspondent pas", "error");
+        showNotify("As senhas não correspondem, "error");
         return;
       }
       
       if (password.length < 6) {
-        showNotify("Le mot de passe doit contenir au moins 6 caractères", "error");
+        showNotify("A senha deve ter no mínimo 6 caracteres", "error");
         return;
       }
       
       // Vérification format email
       const emailRegex = /^[^\\s@]+@([^\\s@]+\\.)+[^\\s@]+$/;
       if (!emailRegex.test(email)) {
-        showNotify("Format d'email invalide", "error");
+        showNotify("Formato de email inválido ", "error");
         return;
       }
       
-      showNotify("Vérification en cours...", "info");
+      showNotify("Verificando...", "info");
       
       try {
-        // Vérifier si l'email existe déjà
+        // Verificar se o email já existe 
         const checkRes = await fetch('/api/check-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2291,13 +2292,13 @@ app.get('/signup-email', (req, res) => {
         if (tempData.success) {
           showNotify("Email validé, continuons !", "success");
           setTimeout(() => {
-            window.location.href = '/charte-engagement?tempId=' + tempData.tempId;
+            window.location.href = '/termos de compromisso?tempId=' + tempData.tempId;
           }, 1000);
         } else {
           showNotify(tempData.error || "Erreur", "error");
         }
       } catch(e) {
-        showNotify("Erreur réseau", "error");
+        showNotify("Erro de conexão", "error");
         console.error(e);
       }
     });
@@ -3985,11 +3986,11 @@ app.get('/settings', requireAuth, async (req, res) => {
 </div>
 <div class="st-group">
   <div class="st-item" onclick="showChangeEmailModal()" style="cursor:pointer;">
-    <span>📧 Modifier l'email</span>
+    <span>📧 Alterar email</span>
     <b>✎</b>
   </div>
   <div class="st-item" onclick="showChangePasswordModal()" style="cursor:pointer;">
-    <span>🔒 Modifier le mot de passe</span>
+    <span>🔒 Alterar a senha</span>
     <b>✎</b>
   </div>
 </div>
@@ -4016,38 +4017,38 @@ app.get('/settings', requireAuth, async (req, res) => {
 <div id="email-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
   <div class="popup-card" style="max-width:350px;">
     <h3 style="color:#ff416c;">Modifier l'email</h3>
-    <div class="input-label">Nouvel email</div>
+    <div class="input-label">Novo email</div>
     <input type="email" id="new-email" class="input-box">
-    <div class="input-label">Mot de passe actuel</div>
+    <div class="input-label">Senha atual</div>
     <div style="position: relative;">
       <input type="password" id="email-password" class="input-box" style="padding-right: 45px;">
       <span onclick="togglePassword('email-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
     </div>
-    <button onclick="updateEmail()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
-    <button onclick="closeEmailModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
+    <button onclick="updateEmail()" class="btn-pink" style="margin-top:15px;">Confirmar</button>
+    <button onclick="closeEmailModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Cancelar</button>
   </div>
 </div>
 
 <div id="password-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
   <div class="popup-card" style="max-width:350px;">
-    <h3 style="color:#ff416c;">Modifier le mot de passe</h3>
-    <div class="input-label">Mot de passe actuel</div>
+    <h3 style="color:#ff416c;">Alterar a senha</h3>
+    <div class="input-label">Senha atual</div>
     <div style="position: relative;">
       <input type="password" id="current-password" class="input-box" style="padding-right: 45px;">
       <span onclick="togglePassword('current-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
     </div>
-    <div class="input-label">Nouveau mot de passe</div>
+    <div class="input-label">Nova Senha</div>
     <div style="position: relative;">
       <input type="password" id="new-password" class="input-box" style="padding-right: 45px;">
       <span onclick="togglePassword('new-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
     </div>
-    <div class="input-label">Confirmer le nouveau mot de passe</div>
+    <div class="input-label">Confirmar a nova senha</div>
     <div style="position: relative;">
       <input type="password" id="confirm-new-password" class="input-box" style="padding-right: 45px;">
       <span onclick="togglePassword('confirm-new-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
     </div>
-    <button onclick="updatePassword()" class="btn-pink" style="margin-top:15px;">Confirmer</button>
-    <button onclick="closePasswordModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Annuler</button>
+    <button onclick="updatePassword()" class="btn-pink" style="margin-top:15px;">Confirmar</button>
+    <button onclick="closePasswordModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Cancelar</button>
   </div>
 </div>
 <!-- ========== FIN MODALS ========== -->
@@ -4106,10 +4107,10 @@ async function updateEmail() {
   const newEmail = document.getElementById('new-email').value;
   const password = document.getElementById('email-password').value;
   if (!newEmail || !password) { 
-    showNotify("Veuillez remplir tous les champs", "error"); 
+    showNotify("Preencha todos os campos", "error"); 
     return; 
   }
-  showNotify("Modification en cours...", "info");
+  showNotify("Atualizando...", "info");
   try {
     const response = await fetch('/api/user/update-email', { 
       method: 'PUT', 
@@ -4910,7 +4911,7 @@ app.post('/api/validate-genotype-qr', async (req, res) => {
     
     // ✅ Correction : split('|') au lieu de split('!')
     const parts = qrData.split('|').map(s => s.trim());
-    
+ 
     // ✅ NOUVEAU FORMAT : 7 campos (numero + 5 dados + assinatura)
     if (parts.length !== 7) {
       return res.status(400).json({ error: 'Formato de QR inválido' });
@@ -5107,6 +5108,9 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
+
+
+
 
 
 
