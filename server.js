@@ -1,886 +1,5125 @@
-
-require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const cors = require('cors');
+const session = require('express-session');
+const MongoStore = require('connect-mongo')
+const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const PDFDocument = require('pdfkit');
-const QRCode = require('qrcode');
-const path = require('path');
-
+const QR_SECRET_HEALTH = process.env.QR_SECRET_HEALTH || 'HEALTH_HMAC_SECRET_2026_a1b2c3d4';
 const app = express();
-const PORT = process.env.PORT || 3001;
+console.log("🚀 Serveur en cours de démarrage...");
+const port = process.env.PORT || 3000;
 
-// Connexion MongoDB
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sns';
-mongoose.connect(MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('✅ MongoDB conectado'))
-  .catch(err => console.error('❌ Erro MongoDB:', err));
 
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-// ========== RÉCUPÉRATION DE LA SIGNATURE ACTIVE DEPUIS LE MINISTÈRE ==========
-const MINISTERIO_URL = process.env.MINISTERIO_URL || 'http://localhost:3000';
-let activeSignature = null;
-let signatureLastFetch = 0;
-const SIGNATURE_CACHE_TTL = 3600000; // 1 heure
+// ====================== CONEXÃO MONGODB ======================
+const mongouRI = process.env.MONGODB_URI || 'mongodb://localhost:27017/genlove';
 
-async function getActiveSignature() {
-  const now = Date.now();
-  // Utiliser le cache si la signature a été récupérée récemment
-  if (activeSignature && (now - signatureLastFetch) < SIGNATURE_CACHE_TTL) {
-    return activeSignature;
-  }
-  
-  try {
-    const response = await fetch(`${MINISTERIO_URL}/api/qr-signature/active`);
-    if (!response.ok) {
-      throw new Error(`Erreur HTTP: ${response.status}`);
-    }
-    const data = await response.json();
-    activeSignature = data.signature;
-    signatureLastFetch = now;
-    console.log(`🔐 Signature active récupérée: ${activeSignature}`);
-    return activeSignature;
-  } catch (error) {
-    console.error('Erreur lors de la récupération de la signature:', error);
-    // Signature par défaut en cas d'erreur
-    return 'SNS-Angola-2026';
-  }
-}
+mongoose.connect(mongouRI)
+  .then(() => console.log('✅ Conectado ao MongoDB para Genlove!'))
+  .catch(err => console.error('❌ Erro de conexão MongoDB:', err));
 
-// ========== Modèles ==========
-const PROVINCIAS = [
-  'Bengo', 'Benguela', 'Bié', 'Cabinda', 'Cuando Cubango',
-  'Cuanza Norte', 'Cuanza Sul', 'Cunene', 'Huambo', 'Huíla',
-  'Luanda', 'Lunda Norte', 'Lunda Sul', 'Malanje', 'Moxico',
-  'Namibe', 'Uíge', 'Zaire'
-];
+// ====================== ASSINATURA SECRETA ======================
+const SECRET_SIGNATURE = "SNS-Angola-2026";
 
-const establishmentSchema = new mongoose.Schema({
-  establishmentType: { type: String, enum: ['laboratorio', 'hospital', 'empresa', 'ong'], required: true, index: true },
-  name: { type: String, required: true, trim: true },
-  nif: { type: String, required: true, unique: true, trim: true },
-  institutionType: { type: String, enum: ['Publico', 'Privado'], required: true },
-  province: { type: String, required: true, enum: PROVINCIAS },
-  municipality: { type: String, required: true, trim: true },
-  address: { type: String, required: true, trim: true },
-  phone1: { type: String, required: true, trim: true },
-  phone2: { type: String, trim: true },
-  email: { type: String, lowercase: true, trim: true },
-  director: { type: String, required: true, trim: true },
-  technicalResponsible: { type: String, required: true, trim: true },
-  licenseNumber: { type: String, required: true, trim: true },
-  licenseValidity: { type: Date, required: true },
-  keyHash: { type: String, required: true, unique: true },
-  keyPrefix: { type: String, default: 'SNS-', index: true },
-  isActive: { type: Boolean, default: true, index: true }
-}, { timestamps: true });
+// ====================== CONFIGURAÇÃO DE SESSÃO ======================
+app.set('trust proxy', 1);
 
-establishmentSchema.virtual('status').get(function() {
-  if (!this.isActive) return 'Inativo';
-  return this.licenseValidity < new Date() ? 'Inativo' : 'Ativo';
+const sessionConfig = {
+  secret: process.env.SESSION_SECRET || SECRET_SIGNATURE,  // ← MODIFIÉ
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: mongouRI,
+    collectionName: 'sessions'
+  }),
+  cookie: {
+    maxAge: 1000 * 60 * 60 * 24 * 30,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax'
+  },
+  proxy: true
+};
+
+app.use(session(sessionConfig));
+
+// ============================================
+// MODÈLES DE DONNÉES - VERSION FINALE
+// ============================================
+
+const userSchema = new mongoose.Schema({
+  firstName: { type: String, required: true },
+  lastName: { type: String, required: true },
+  gender: String,
+  dob: String,
+  residence: String,
+  region: { type: String, default: "" },
+  genotype: { type: String, enum: ['AA', 'AS', 'SS'] },
+  bloodGroup: String,
+  desireChild: String,
+  photo: String,
+  language: { type: String, default: 'fr' },
+  isVerified: { type: Boolean, default: false },
+  isPublic: { type: Boolean, default: true },
+  blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  blockedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  rejectedRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  createdAt: { type: Date, default: Date.now },
+  qrVerified: { type: Boolean, default: false },
+  verifiedBy: String,
+  verifiedAt: Date,
+  verificationBadge: { type: String, enum: ['none', 'self', 'lab'], default: 'none' },
+  // NOUVEAUX CHAMPS POUR EMAIL ET MOT DE PASSE
+  email: { type: String, unique: true, sparse: true },
+  passwordHash: { type: String }
+});
+const messageSchema = new mongoose.Schema({
+    senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    receiverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    text: { type: String, required: true },
+    timestamp: { type: Date, default: Date.now },
+    read: { type: Boolean, default: false },
+    isBlocked: { type: Boolean, default: false }
 });
 
-const Establishment = mongoose.model('Establishment', establishmentSchema);
+const requestSchema = new mongoose.Schema({
+    senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    receiverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
+    viewed: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now }
+});
 
-// Schema Certificate – com patientGender
-const certificateSchema = new mongoose.Schema({
-  establishmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Establishment', required: true, index: true },
-  createdBy: { type: String },
-  certificateNumber: { type: String, required: true, unique: true },
-  patientName: { type: String, required: true },
-  patientGender: { type: String }, // 'M' ou 'F'
-  patientId: { type: String },
-  patientBirthDate: { type: Date },
-  diseaseCategory: { type: String, required: true },
-  diagnosis: { type: String, required: true },
-  testDate: { type: Date, default: Date.now },
-  testResults: { type: mongoose.Schema.Types.Mixed },
-  idadeCalculada: Number,
-  imcCalculado: Number,
-  classificacaoIMC: String
-}, { timestamps: true });
+const User = mongoose.model('User', userSchema);
+const Message = mongoose.model('Message', messageSchema);
+const Request = mongoose.model('Request', requestSchema);
 
-certificateSchema.index({ createdAt: -1 });
-certificateSchema.index({ patientName: 'text' });
+// ============================================
+// MIDDLEWARE
+// ============================================
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-const Certificate = mongoose.model('Certificate', certificateSchema);
-
-// ========== Utilitaires ==========
-// Lista de campos por tipo (mesma do frontend)
-const camposPorTipo = {
-  1: ['grupoSanguineo','fatorRh','genotipo','hemoglobina','hematocrito','contagem_reticulocitos','eletroforese'],
-  2: ['peso','altura','pressaoArterial','frequenciaCardiaca','frequenciaRespiratoria','temperatura','saturacaoOxigenio','glicemia','colesterolTotal','triglicerideos'],
-  3: ['tipoIncapacidade','causa','grau','dataInicio','partesAfetadas','limitacoes','necessitaAcompanhante'],
-  4: ['tipoAptidao','modalidade','resultado','restricoes','validade'],
-  5: ['gestacoes','partos','abortos','nascidosVivos','dum','dpp','idadeGestacional','consultasCPN','hemograma','gotaEspessa','hiv','vdrl','hbs','glicemia','creatinina','ureia','tgo','grupoSanguineo','fatorRh','exsudadoVaginal','pesoAtual','alturaUterina','batimentosCardiacosFeto','movimentosFetais','edema','proteinuria'],
-  6: ['grupoSanguineo','fatorRh','hemograma','gotaEspessa','hiv','vdrl','hbs','vidal','glicemia','creatinina','ureia','tgo','testeGravidez','exsudadoVaginal','vs','falsiformacao'],
-  7: ['doenca','outraDoenca','dataInicioSintomas','dataDiagnostico','metodoDiagnostico','tipoExame','resultado','tratamento','internamento','dataInternamento','contatos'],
-  8: ['destino','motivoViagem','dataPartida','dataRetorno','vacinaFebreAmarela','dataVacinaFebreAmarela','loteVacinaFebreAmarela','vacinaCovid19','dosesCovid','testeCovid','tipoTesteCovid','dataTesteCovid','resultadoTesteCovid','outrasVacinas','medicamentos','condicoesEspeciais','recomendacoes']
-};
-
-function formatarNomeCampo(chave) {
-  return chave.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-}
-
-function gerarNumeroCertificado(labId) {
-  const agora = new Date();
-  const ano = agora.getFullYear();
-  const mes = (agora.getMonth() + 1).toString().padStart(2, '0');
-  const dia = agora.getDate().toString().padStart(2, '0');
-  const hora = agora.getHours().toString().padStart(2, '0');
-  const min = agora.getMinutes().toString().padStart(2, '0');
-  const seg = agora.getSeconds().toString().padStart(2, '0');
-  const ms = agora.getMilliseconds().toString().padStart(3, '0');
-  const labPart = labId.toString().slice(-4).toUpperCase();
-  const random = crypto.randomBytes(6).toString('hex').toUpperCase();
-  return `CERT-${ano}${mes}${dia}-${labPart}-${hora}${min}${seg}${ms}-${random}`;
-}
-
-function calcularIdade(dataNascimento) {
-  if (!dataNascimento) return null;
-  const hoje = new Date();
-  const nasc = new Date(dataNascimento);
-  let idade = hoje.getFullYear() - nasc.getFullYear();
-  const m = hoje.getMonth() - nasc.getMonth();
-  if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) idade--;
-  return idade;
-}
-
-function calcularIMC(peso, altura) {
-  if (!peso || !altura || altura <= 0) return { imc: null, classificacao: null };
-  const imc = peso / (altura * altura);
-  let classificacao = '';
-  if (imc < 18.5) classificacao = 'Abaixo do peso';
-  else if (imc < 25) classificacao = 'Peso normal';
-  else if (imc < 30) classificacao = 'Sobrepeso';
-  else if (imc < 35) classificacao = 'Obesidade grau I';
-  else if (imc < 40) classificacao = 'Obesidade grau II';
-  else classificacao = 'Obesidade grau III';
-  return { imc: imc.toFixed(2), classificacao };
-}
-
-// ========== Middleware JWT ==========
-const authJWT = async (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret-key');
-    const lab = await Establishment.findById(decoded.id);
-    if (!lab) return res.status(401).json({ erro: 'Laboratório não encontrado' });
-    if (lab.status === 'Inativo') return res.status(403).json({ erro: 'Laboratório inativo' });
-    req.lab = lab;
+const requireAuth = (req, res, next) => {
+    if (!req.session.userId) return res.redirect('/');
     next();
-  } catch (err) {
-    return res.status(403).json({ erro: 'Token inválido' });
-  }
 };
 
-// ========== Rotas HTML ==========
+// ============================================
+// SYSTÈME DE TRADUCTION MULTILINGUE (6 LANGUES)
+// ============================================
+const translations = {
+    fr: {
+        appName: 'Genlove',
+        slogan: 'Unissez cœur et santé pour bâtir des couples sains 👩‍🎨',
+        security: '👩‍🎨 Vos données de santé sont cryptées',
+        welcome: 'Bienvenue sur Genlove',
+        haveAccount: 'Avez-vous déjà un compte ?',
+        login: 'Se connecter',
+        createAccount: 'Créer un compte',
+        loginTitle: 'Connexion',
+        enterName: 'Entrez votre prénom pour vous connecter',
+        yourName: 'Votre prénom',
+        backHome: 'Retour à l\'accueil',
+        nameNotFound: 'Prénom non trouvé. Veuillez créer un compte.',
+        charterTitle: '👩‍🎨 La Charte d\'Honneur',
+        charterSubtitle: 'Lisez attentivement ces 5 engagements',
+        scrollDown: '👩‍🎨 Faites défiler jusqu\'en bas 👩‍🎨',
+        accept: 'J\'accepte et je continue',
+        oath1: '1. Le Serment de Sincérité',
+        oath1Sub: 'Vérité Médicale',
+        oath1Text: 'Je m\'engage sur l\'honneur à fournir des informations exactes concernant mon génotype et mes données de santé.',
+        oath2: '2. Le Pacte de Confidentialité',
+        oath2Sub: 'Secret Partagé',
+        oath2Text: 'Je m\'engage à garder confidentielles toutes les informations personnelles et médicales.',
+        oath3: '3. Le Principe de Non-Discrimination',
+        oath3Sub: 'Égalité de Respect',
+        oath3Text: 'Je traite chaque membre avec dignité, quel que soit son génotype.',
+        oath4: '4. La Responsabilité Préventive',
+        oath4Sub: 'Orientation Santé',
+        oath4Text: 'J\'accepte les mesures de protection comme le filtrage des compatibilités à risque.',
+        oath5: '5. La Bienveillance Éthique',
+        oath5Sub: 'Courtoisie',
+        oath5Text: 'J\'adopte une conduite exemplaire et respectueuse dans mes messages.',
+        signupTitle: 'Créer mon profil',
+        signupSub: 'Toutes les informations sont confidentielles',
+        firstName: 'Prénom',
+        lastName: 'Nom',
+        gender: 'Genre',
+        male: 'Homme',
+        female: 'Femme',
+        dob: 'Date de naissance',
+        city: 'Ville de résidence',
+        region: 'Région',
+        allRegions: 'Toutes les régions',
+        myRegion: 'Ma région uniquement',
+        genotype: 'Génotype',
+        bloodGroup: 'Groupe sanguin',
+        desireChild: 'Désir d\'enfant ?',
+        yes: 'Oui',
+        no: 'Non',
+        createProfile: 'Créer mon profil',
+        backCharter: '← Retour à la charte',
+        required: 'obligatoire',
+        honorTitle: 'Serment d\'Honneur',
+        honorText: 'Je confirme sur mon honneur que mes informations sont sincères et conformes à la réalité.',
+        swear: 'Je le jure',
+        accessProfile: 'Accéder à mon profil',
+        myProfile: 'Mon Profil',
+        home: 'Accueil',
+        messages: 'Messages',
+        settings: 'Paramètres',
+        genotype_label: 'Génotype',
+        blood_label: 'Groupe',
+        age_label: 'Âge',
+        residence_label: 'Résidence',
+        region_label: 'Région',
+        project_label: 'Projet',
+        findPartner: 'Trouver un partenaire',
+        editProfile: 'Modifier mon profil',
+        compatiblePartners: 'Partenaires compatibles',
+        noPartners: 'Aucun partenaire trouvé pour le moment',
+        searchOngoing: 'Recherche en cours...',
+        expandCommunity: 'Nous élargissons notre communauté. Revenez bientôt !',
+        details: 'Détails',
+        contact: 'Contacter',
+        backProfile: '← Mon profil',
+        toMessages: 'Messages →',
+        healthCommitment: 'Votre engagement santé',
+        popupMessageAS: 'En tant que profil AS, nous ne vous présentons que des partenaires AA. Ce choix responsable garantit la sérénité de votre futur foyer et protège votre descendance contre la drépanocytose.',
+        popupMessageSS: 'En tant que profil SS, nous ne vous présentons que des partenaires AA. Ce choix responsable garantit la sérénité de votre futur foyer et protège votre descendance contre la drépanocytose.',
+        understood: 'J\'ai compris',
+        inboxTitle: 'Boîte de réception',
+        emptyInbox: 'Boîte vide',
+        startConversation: 'Commencez une conversation !',
+        findPartners: 'Trouver des partenaires',
+        block: 'Bloquer',
+        unblock: 'Débloquer',
+        yourMessage: 'Votre message...',
+        send: 'Envoyer',
+        blockedByUser: 'Conversation impossible',
+        blockedMessage: 'Cet utilisateur vous a bloqué. Vous ne pouvez pas lui envoyer de messages.',
+        settingsTitle: 'Paramètres',
+        visibility: 'Visibilité du profil',
+        notifications: 'Notifications push',
+        language: 'Langue',
+        blockedUsers: 'Utilisateurs bloqués',
+        dangerZone: 'ZONE DE DANGER',
+        deleteAccount: 'Supprimer mon compte',
+        delete: 'Supprimer',
+        logout: 'Déconnexion',
+        confirmDelete: 'Supprimer définitivement ?',
+        noBlocked: 'Aucun utilisateur bloqué',
+        thankYou: 'Merci pour cet échange',
+        thanksMessage: 'Genlove vous remercie',
+        newSearch: 'Nouvelle recherche',
+        logoutSuccess: 'Déconnexion réussie',
+        seeYouSoon: 'À bientôt !',
+        french: 'Français',
+        english: 'English',
+        portuguese: 'Português',
+        spanish: 'Español',
+        arabic: 'المرّة',
+        chinese: '中文',
+        pageNotFound: 'Page non trouvée',
+        pageNotFoundMessage: 'La page que vous cherchez n\'existe pas.',
+        project_life: 'Projet de vie',
+        interestPopup: '{name} est très attiré par votre profil car vous partagez une bonne compatibilité. Pouvez-vous prendre quelques minutes pour échanger ?',
+        acceptRequest: 'Accept',
+        rejectRequest: 'Refuser',
+        rejectionPopup: 'Désolé, {name} n\'a pas donné une suite favorable à votre demande. Lancez d\'autres recherches.',
+        gotIt: 'J\'ai compris',
+        returnProfile: 'Mon profil',
+        newMatch: 'Nouvelle recherche',
+        sendingRequest: 'Votre demande est en cours d\'envoi...',
+        requestSent: 'Demande envoyée !',
+        january: 'Janvier',
+        february: 'Février',
+        march: 'Mars',
+        april: 'Avril',
+        may: 'Mai',
+        june: 'Juin',
+        july: 'Juillet',
+        august: 'Août',
+        september: 'Septembre',
+        october: 'Octobre',
+        november: 'Novembre',
+        december: 'Décembre',
+        day: 'Jour',
+        month: 'Mois',
+        year: 'Année',
+        
+        // QR Code translations
+        withCertificate: 'Avec certificat médical',
+        manualEntry: 'Manuellement',
+        scanAutomatic: 'Scan automatique de vos données',
+        freeEntry: 'Saisie libre de vos informations',
+        dataFromCertificate: 'Données issues de votre certificat',
+        locationHelp: 'Aider les personnes les plus proches de chez vous à vous contacter facilement',
+        yourLocation: 'Votre localisation',
+        lifeProject: 'Projet de vie',
+        
+        // 🔴 NOUVELLES CLÉS POUR LE PROFIL (Paramètres, etc.)
+        medicalData: 'DONNÉES CERTIFICAT MÉDICAL',
+        nonModifiable: 'NON MODIFIABLES',
+        protectedSource: 'Protégé (source: certificat)',
+        personalData: 'DONNÉES PERSONNELLES',
+        modifiable: 'MODIFIABLES',
+        errorOccurred: 'Erreur lors de la modification',
+        automaticData: 'DONNÉES AUTOMATIQUES',
+        certificate: 'CERTIFICAT',
+        labCertified: 'Certifié par laboratoire',
+        selfDeclared: 'Auto-déclaré',
+        confidentiality: 'CONFIDENTIALITÉ',
+        currentStatus: 'Statut actuel',
+        public: 'Public',
+        private: 'Privé',
+        modify: 'Modifier',
+        sectionTitle: 'Aidez vos partenaires à en savoir un peu plus sur vous',
+        subText: 'Veuillez remplir les cases ci-dessous :',
+        photoPlaceholder: 'Ajouter photo',
+        birthDate: 'Date de naissance'
+    },
+    en: {
+        appName: 'Genlove',
+        slogan: 'Unite heart and health to build healthy couples ',
+        security: 'Your health data is encrypted',
+        welcome: 'Welcome to Genlove',
+        haveAccount: 'Already have an account?',
+        login: 'Login',
+        createAccount: 'Create account',
+        loginTitle: 'Login',
+        enterName: 'Enter your first name to login',
+        yourName: 'Your first name',
+        backHome: 'Back to home',
+        nameNotFound: 'Name not found. Please create an account.',
+        charterTitle: 'The Honor Charter',
+        charterSubtitle: 'Read these 5 commitments carefully',
+        scrollDown: 'Scroll to the bottom ',
+        accept: 'I accept and continue',
+        oath1: '1. The Oath of Sincerity',
+        oath1Sub: 'Medical Truth',
+        oath1Text: 'I pledge on my honor to provide accurate information about my genotype and health data.',
+        oath2: '2. The Pact of Confidentiality',
+        oath2Sub: 'Shared Secret',
+        oath2Text: 'I commit to keeping all personal and medical information confidential.',
+        oath3: '3. The Principle of Non-Discrimination',
+        oath3Sub: 'Equality of Respect',
+        oath3Text: 'I treat every member with dignity, regardless of their genotype.',
+        oath4: '4. Preventive Responsibility',
+        oath4Sub: 'Health Orientation',
+        oath4Text: 'I accept protective measures such as filtering risky compatibilities.',
+        oath5: '5. Ethical Benevolence',
+        oath5Sub: 'Courtesy',
+        oath5Text: 'I adopt exemplary and respectful conduct in my messages.',
+        signupTitle: 'Create my profile',
+        signupSub: 'All information is confidential',
+        firstName: 'First name',
+        lastName: 'Last name',
+        gender: 'Gender',
+        male: 'Male',
+        female: 'Female',
+        dob: 'Date of birth',
+        city: 'City of residence',
+        region: 'Region',
+        allRegions: 'All regions',
+        myRegion: 'My region only',
+        genotype: 'Genotype',
+        bloodGroup: 'Blood group',
+        desireChild: 'Desire for children?',
+        yes: 'Yes',
+        no: 'No',
+        createProfile: 'Create my profile',
+        backCharter: '← Back to charter',
+        required: 'required',
+        honorTitle: 'Oath of Honor',
+        honorText: 'I confirm on my honor that my information is sincere and conforms to reality.',
+        swear: 'I swear',
+        accessProfile: 'Access my profile',
+        myProfile: 'My Profile',
+        home: 'Home',
+        messages: 'Messages',
+        settings: 'Settings',
+        genotype_label: 'Genotype',
+        blood_label: 'Blood',
+        age_label: 'Age',
+        residence_label: 'Residence',
+        region_label: 'Region',
+        project_label: 'Project',
+        findPartner: 'Find a partner',
+        editProfile: 'Edit my profile',
+        compatiblePartners: 'Compatible partners',
+        noPartners: 'No partners found at the moment',
+        searchOngoing: 'Search in progress...',
+        expandCommunity: 'We are expanding our community. Come back soon!',
+        details: 'Details',
+        contact: 'Contact',
+        backProfile: '← My profile',
+        toMessages: 'Messages →',
+        healthCommitment: 'Your health commitment',
+        popupMessageAS: 'As an AS profile, we only show you AA partners. This responsible choice guarantees the serenity of your future family and protects your offspring against sickle cell disease.',
+        popupMessageSS: 'As an SS profile, we only show you AA partners. This responsible choice guarantees the serenity of your future family and protects your offspring against sickle cell disease.',
+        understood: 'I understand',
+        inboxTitle: 'Inbox',
+        emptyInbox: 'Empty inbox',
+        startConversation: 'Start a conversation!',
+        findPartners: 'Find partners',
+        block: 'Block',
+        unblock: 'Unblock',
+        yourMessage: 'Your message...',
+        send: 'Send',
+        blockedByUser: 'Conversation impossible',
+        blockedMessage: 'This user has blocked you. You cannot send them messages.',
+        settingsTitle: 'Settings',
+        visibility: 'Profile visibility',
+        notifications: 'Push notifications',
+        language: 'Language',
+        blockedUsers: 'Blocked users',
+        dangerZone: 'DANGER ZONE',
+        deleteAccount: 'Delete my account',
+        delete: 'Delete',
+        logout: 'Logout',
+        confirmDelete: 'Delete permanently?',
+        noBlocked: 'No blocked users',
+        thankYou: 'Thank you for this exchange',
+        thanksMessage: 'Genlove thanks you',
+        newSearch: 'New search',
+        logoutSuccess: 'Logout successful',
+        seeYouSoon: 'See you soon!',
+        french: 'French',
+        english: 'English',
+        portuguese: 'Portuguese',
+        spanish: 'Spanish',
+        arabic: 'Arabic',
+        chinese: 'Chinese',
+        pageNotFound: 'Page not found',
+        pageNotFoundMessage: 'The page you are looking for does not exist.',
+        project_life: 'Life project',
+        interestPopup: '{name} is very attracted to your profile because you share good compatibility. Can you take a few minutes to chat?',
+        acceptRequest: 'Accept',
+        rejectRequest: 'X Reject',
+        rejectionPopup: 'Sorry, {name} did not give a favorable response to your request. Start other searches.',
+        gotIt: 'Got it',
+        returnProfile: 'My profile',
+        newMatch: 'New search',
+        sendingRequest: 'Your request is being sent...',
+        requestSent: 'Request sent!',
+        january: 'January',
+        february: 'February',
+        march: 'March',
+        april: 'April',
+        may: 'May',
+        june: 'June',
+        july: 'July',
+        august: 'August',
+        september: 'September',
+        october: 'October',
+        november: 'November',
+        december: 'December',
+        day: 'Day',
+        month: 'Month',
+        year: 'Year',
+        
+        // QR Code translations
+        withCertificate: 'With medical certificate',
+        manualEntry: 'Manually',
+        scanAutomatic: 'Automatic scan of your data',
+        freeEntry: 'Free entry of your information',
+        dataFromCertificate: 'Data from your certificate',
+        locationHelp: 'Help people near you to contact you easily',
+        yourLocation: 'Your location',
+        lifeProject: 'Life project',
+        
+        // 🔴 NOUVELLES CLÉS POUR LE PROFIL (Paramètres, etc.)
+        medicalData: 'MEDICAL CERTIFICATE DATA',
+        nonModifiable: 'NON-MODIFIABLE',
+        protectedSource: 'Protected (source: certificate)',
+        personalData: 'PERSONAL DATA',
+        modifiable: 'MODIFIABLE',
+        errorOccurred: 'Error during modification',
+        automaticData: 'AUTOMATIC DATA',
+        certificate: 'CERTIFICATE',
+        labCertified: 'Certified by laboratory',
+        selfDeclared: 'Self-declared',
+        confidentiality: 'CONFIDENTIALITY',
+        currentStatus: 'Current status',
+        public: 'Public',
+        private: 'Private',
+        modify: 'Edit',
+        sectionTitle: 'Help your partners know more about you',
+        subText: 'Please fill in the fields below:',
+        photoPlaceholder: 'Add photo',
+        birthDate: 'Date of birth'
+    },
+    pt: {
+        appName: 'Genlove',
+        slogan: 'Una coracao e saude para construir casais saudaveis',
+        security: 'Seus dados de saude estao criptografados',
+        welcome: 'Bem-vindo ao Genlove',
+        haveAccount: 'Ja tem uma conta?',
+        login: 'Entrar',
+        createAccount: 'Criar conta',
+        loginTitle: 'Entrar',
+        enterName: 'Digite seu primeiro nome para entrar',
+        yourName: 'Seu primeiro nome',
+        backHome: '← Voltar ao início',
+        nameNotFound: 'Nome não encontrado. Por favor, crie uma conta.',
+        charterTitle: ' A Carta de Honra',
+        charterSubtitle: 'Leia estes 5 compromissos atentamente',
+        scrollDown: ' Role até o final ',
+        accept: 'Aceito e continuo',
+        oath1: '1. O Juramento de Sinceridade',
+        oath1Sub: 'Verdade Médica',
+        oath1Text: 'Comprometo-me, sob minha honra, a fornecer informações precisas sobre meu genótipo e dados de saúde.',
+        oath2: '2. O Pacto de Confidencialidade',
+        oath2Sub: 'Segredo Compartilhado',
+        oath2Text: 'Comprometo-me a manter todas as informações pessoais e médicas confidenciais.',
+        oath3: '3. O Princípio da Não-Discriminação',
+        oath3Sub: 'Igualdade de Respeito',
+        oath3Text: 'Trato cada membro com dignidade, independentemente do seu genótipo.',
+        oath4: '4. Responsabilidade Preventiva',
+        oath4Sub: 'Orientação para a Saúde',
+        oath4Text: 'Aceito medidas de proteção como a filtragem de compatibilidades de risco.',
+        oath5: '5. Benevolência Ética',
+        oath5Sub: 'Cortesia',
+        oath5Text: 'Adoto uma conduta exemplar e respeitosa em minhas mensagens.',
+        signupTitle: 'Criar meu perfil',
+        signupSub: 'Todas as informações são confidenciais',
+        firstName: 'Primeiro nome',
+        lastName: 'Sobrenome',
+        gender: 'Gênero',
+        male: 'Homem',
+        female: 'Mulher',
+        dob: 'Data de nascimento',
+        city: 'Cidade de residência',
+        region: 'Região',
+        allRegions: 'Todas as regiões',
+        myRegion: 'Minha região apenas',
+        genotype: 'Genótipo',
+        bloodGroup: 'Grupo sanguíneo',
+        desireChild: 'Desejo de ter filhos?',
+        yes: 'Sim',
+        no: 'Não',
+        createProfile: 'Criar meu perfil',
+        backCharter: '← Voltar à carta',
+        required: 'obrigatório',
+        honorTitle: 'Juramento de Honra',
+        honorText: 'Confirmo por minha honra que minhas informações são sinceras e conformes à realidade.',
+        swear: 'Eu juro',
+        accessProfile: 'Acessar meu perfil',
+        myProfile: 'Meu Perfil',
+        home: 'Início',
+        messages: 'Mensagens',
+        settings: 'Configurações',
+        genotype_label: 'Genótipo',
+        blood_label: 'Grupo',
+        age_label: 'Idade',
+        residence_label: 'Residência',
+        region_label: 'Região',
+        project_label: 'Projeto',
+        findPartner: 'Encontrar parceiro(a)',
+        editProfile: 'Editar perfil',
+        compatiblePartners: 'Parceiros compatíveis',
+        noPartners: 'Nenhum parceiro encontrado no momento',
+        searchOngoing: 'Pesquisa em andamento...',
+        expandCommunity: 'Estamos expandindo nossa comunidade. Volte em breve!',
+        details: 'Detalhes',
+        contact: 'Contatar',
+        backProfile: '← Meu perfil',
+        toMessages: 'Mensagens →',
+        healthCommitment: 'Seu compromisso com a saúde',
+        popupMessageAS: 'Como perfil AS, mostramos apenas parceiros AA. Esta escolha responsável garante a serenidade do seu futuro lar e protege seus descendentes contra a doença falciforme.',
+        popupMessageSS: 'Como perfil SS, mostramos apenas parceiros AA. Esta escolha responsável garante a serenidade do seu futuro lar e protege seus descendentes contra a doença falciforme.',
+        understood: 'Entendi',
+        inboxTitle: 'Caixa de entrada',
+        emptyInbox: 'Caixa vazia',
+        startConversation: 'Comece uma conversa!',
+        findPartners: 'Encontrar parceiros',
+        block: 'Bloquear',
+        unblock: 'Desbloquear',
+        yourMessage: 'Sua mensagem...',
+        send: 'Enviar',
+        blockedByUser: 'Conversa impossível',
+        blockedMessage: 'Este usuário bloqueou você. Não é possível enviar mensagens.',
+        settingsTitle: 'Configurações',
+        visibility: 'Visibilidade do perfil',
+        notifications: 'Notificações push',
+        language: 'Idioma',
+        blockedUsers: 'Usuários bloqueados',
+        dangerZone: 'ZONA DE PERIGO',
+        deleteAccount: 'Excluir minha conta',
+        delete: 'Excluir',
+        logout: 'Sair',
+        confirmDelete: 'Excluir permanentemente?',
+        noBlocked: 'Nenhum usuário bloqueado',
+        thankYou: 'Obrigado por este encontro',
+        thanksMessage: 'Genlove agradece',
+        newSearch: 'Nova pesquisa',
+        logoutSuccess: 'Saída bem-sucedida',
+        seeYouSoon: 'Até breve!',
+        french: 'Francês',
+        english: 'Inglês',
+        portuguese: 'Português',
+        spanish: 'Espanhol',
+        arabic: 'Árabe',
+        chinese: 'Chinês',
+        pageNotFound: 'Página não encontrada',
+        pageNotFoundMessage: 'A página que você procura não existe.',
+        project_life: 'Projeto de vida',
+        interestPopup: '{name} está muito atraído(a) pelo seu perfil porque vocês compartilham boa compatibilidade. Você pode alguns minutos para conversar?',
+        acceptRequest: '✓ Aceitar',
+        rejectRequest: '✗ Recusar',
+        rejectionPopup: 'Desculpe, {name} não deu um retorno favorável ao seu pedido. Faça outras pesquisas.',
+        gotIt: 'Entendi',
+        returnProfile: 'Meu perfil',
+        newMatch: 'Nova pesquisa',
+        sendingRequest: 'Seu pedido está sendo enviado...',
+        requestSent: 'Pedido enviado!',
+        january: 'Janeiro',
+        february: 'Fevereiro',
+        march: 'Março',
+        april: 'Abril',
+        may: 'Maio',
+        june: 'Junho',
+        july: 'Julho',
+        august: 'Agosto',
+        september: 'Setembro',
+        october: 'Outubro',
+        november: 'Novembro',
+        december: 'Dezembro',
+        day: 'Dia',
+        month: 'Mês',
+        year: 'Ano',
+        
+        // QR Code translations
+        withCertificate: 'Com certificado médico',
+        manualEntry: 'Manualmente',
+        scanAutomatic: 'Leitura automática dos seus dados',
+        freeEntry: 'Digitação livre das suas informações',
+        dataFromCertificate: 'Dados do seu certificado',
+        locationHelp: 'Ajude as pessoas mais próximas de você a contatá-lo facilmente',
+        yourLocation: 'Sua localização',
+        lifeProject: 'Projeto de vida',
+        
+        // 🔴 NOUVELLES CLÉS POUR LE PROFIL (Paramètres, etc.)
+        medicalData: 'DADOS DO CERTIFICADO MÉDICO',
+        nonModifiable: 'NÃO MODIFICÁVEIS',
+        protectedSource: 'Protegido (fonte: certificado)',
+        personalData: 'DADOS PESSOAIS',
+        modifiable: 'MODIFICÁVEIS',
+        errorOccurred: 'Erro durante a modificação',
+        automaticData: 'DADOS AUTOMÁTICOS',
+        certificate: 'CERTIFICADO',
+        labCertified: 'Certificado por laboratório',
+        selfDeclared: 'Autodeclarado',
+        confidentiality: 'CONFIDENCIALIDADE',
+        currentStatus: 'Status atual',
+        public: 'Público',
+        private: 'Privado',
+        modify: 'Editar',
+        sectionTitle: 'Ajude seus parceiros a saberem mais sobre você',
+        subText: 'Preencha os campos abaixo:',
+        photoPlaceholder: 'Adicionar foto',
+        birthDate: 'Data de nascimento'
+    },
+    es: {
+        appName: 'Genlove',
+        slogan: 'Une corazón y salud para construir parejas saludables',
+        security: 'Sus datos de salud están encriptados',
+        welcome: 'Bienvenido a Genlove',
+        haveAccount: '¿Ya tienes una cuenta?',
+        login: 'Iniciar sesión',
+        createAccount: 'Crear cuenta',
+        loginTitle: 'Iniciar sesión',
+        enterName: 'Ingrese su nombre para iniciar sesión',
+        yourName: 'Su nombre',
+        backHome: '← Volver al inicio',
+        nameNotFound: 'Nombre no encontrado. Por favor, cree una cuenta.',
+        charterTitle: 'La Carta de Honor',
+        charterSubtitle: 'Lea estos 5 compromisos atentamente',
+        scrollDown: 'Desplácese hasta el final',
+        accept: 'Acepto y continúo',
+        oath1: '1. El Juramento de Sinceridad',
+        oath1Sub: 'Verdad Médica',
+        oath1Text: 'Me comprometo bajo mi honor a proporcionar información precisa sobre mi genotipo y datos de salud.',
+        oath2: '2. El Pacto de Confidencialidad',
+        oath2Sub: 'Secreto Compartido',
+        oath2Text: 'Me comprometo a mantener toda la información personal y médica confidencial.',
+        oath3: '3. El Principio de No Discriminación',
+        oath3Sub: 'Igualdad de Respeto',
+        oath3Text: 'Trato a cada miembro con dignidad, independientemente de su genotipo.',
+        oath4: '4. Responsabilidad Preventiva',
+        oath4Sub: 'Orientación para la Salud',
+        oath4Text: 'Acepto medidas de protección como el filtrado de compatibilidades de riesgo.',
+        oath5: '5. Benevolencia Ética',
+        oath5Sub: 'Cortesía',
+        oath5Text: 'Adopto una conducta ejemplar y respetuosa en mis mensajes.',
+        signupTitle: 'Crear mi perfil',
+        signupSub: 'Toda la información es confidencial',
+        firstName: 'Nombre',
+        lastName: 'Apellido',
+        gender: 'Género',
+        male: 'Hombre',
+        female: 'Mujer',
+        dob: 'Fecha de nacimiento',
+        city: 'Ciudad de residencia',
+        region: 'Región',
+        allRegions: 'Todas las regiones',
+        myRegion: 'Mi región solamente',
+        genotype: 'Genotipo',
+        bloodGroup: 'Grupo sanguíneo',
+        desireChild: '¿Deseo de tener hijos?',
+        yes: 'Sí',
+        no: 'No',
+        createProfile: 'Crear mi perfil',
+        backCharter: '← Volver a la carta',
+        required: 'obligatorio',
+        honorTitle: 'Juramento de Honor',
+        honorText: 'Confirmo bajo mi honor que mi información es sincera y conforme a la realidad.',
+        swear: 'Lo juro',
+        accessProfile: 'Acceder a mi perfil',
+        myProfile: 'Mi Perfil',
+        home: 'Inicio',
+        messages: 'Mensajes',
+        settings: 'Configuración',
+        genotype_label: 'Genotipo',
+        blood_label: 'Grupo',
+        age_label: 'Edad',
+        residence_label: 'Residencia',
+        region_label: 'Región',
+        project_label: 'Proyecto',
+        findPartner: 'Encontrar pareja',
+        editProfile: 'Editar perfil',
+        compatiblePartners: 'Parejas compatibles',
+        noPartners: 'No se encontraron parejas por el momento',
+        searchOngoing: 'Búsqueda en curso...',
+        expandCommunity: 'Estamos expandiendo nuestra comunidad. ¡Vuelva pronto!',
+        details: 'Detalles',
+        contact: 'Contactar',
+        backProfile: '← Mi perfil',
+        toMessages: 'Mensajes →',
+        healthCommitment: 'Su compromiso con la salud',
+        popupMessageAS: 'Como perfil AS, solo le mostramos parejas AA. Esta elección responsable garantiza la serenidad de su futuro hogar y protege a su descendencia contra la enfermedad de células falciformes.',
+        popupMessageSS: 'Como perfil SS, solo le mostramos parejas AA. Esta elección responsable garantiza la serenidad de su futuro hogar y protege a su descendencia contra la enfermedad de células falciformes.',
+        understood: 'Entiendo',
+        inboxTitle: 'Bandeja de entrada',
+        emptyInbox: 'Bandeja vacía',
+        startConversation: '¡Comience una conversación!',
+        findPartners: 'Encontrar parejas',
+        block: 'Bloquear',
+        unblock: 'Desbloquear',
+        yourMessage: 'Su mensaje...',
+        send: 'Enviar',
+        blockedByUser: 'Conversación imposible',
+        blockedMessage: 'Este usuario le ha bloqueado. No puede enviarle mensajes.',
+        settingsTitle: 'Configuración',
+        visibility: 'Visibilidad del perfil',
+        notifications: 'Notificaciones push',
+        language: 'Idioma',
+        blockedUsers: 'Usuarios bloqueados',
+        dangerZone: ' ZONA DE PELIGRO',
+        deleteAccount: 'Eliminar mi cuenta',
+        delete: 'Eliminar',
+        logout: 'Cerrar sesión',
+        confirmDelete: '¿Eliminar permanentemente?',
+        noBlocked: 'No hay usuarios bloqueados',
+        thankYou: 'Gracias por este intercambio',
+        thanksMessage: 'Genlove le agradece',
+        newSearch: 'Nueva búsqueda',
+        logoutSuccess: 'Sesión cerrada',
+        seeYouSoon: '¡Hasta pronto!',
+        french: 'Francés',
+        english: 'Inglés',
+        portuguese: 'Portugués',
+        spanish: 'Español',
+        arabic: 'Árabe',
+        chinese: 'Chino',
+        pageNotFound: 'Página no encontrada',
+        pageNotFoundMessage: 'La página que busca no existe.',
+        project_life: 'Proyecto de vida',
+        interestPopup: '{name} está muy atraído(a) por tu perfil porque comparten buena compatibilidad. ¿Puedes tomar unos minutos para conversar?',
+        acceptRequest: ' Acceptar',
+        rejectRequest: ' Rechazar',
+        rejectionPopup: 'Lo sentimos, {name} no dio una respuesta favorable a tu solicitud. Realiza otras búsquedas.',
+        gotIt: 'Entiendo',
+        returnProfile: ' Mi perfil',
+        newMatch: ' Nueva búsqueda',
+        sendingRequest: ' Tu solicitud está siendo enviada...',
+        requestSent: ' Solicitud enviada!',
+        january: 'Enero',
+        february: 'Febrero',
+        march: 'Marzo',
+        april: 'Abril',
+        may: 'Mayo',
+        june: 'Junio',
+        july: 'Julio',
+        august: 'Agosto',
+        september: 'Septiembre',
+        october: 'Octubre',
+        november: 'Noviembre',
+        december: 'Diciembre',
+        day: 'Día',
+        month: 'Mes',
+        year: 'Año',
+        
+        // QR Code translations
+        withCertificate: 'Con certificado médico',
+        manualEntry: 'Manual',
+        scanAutomatic: 'Escaneo automático de sus datos',
+        freeEntry: 'Ingreso libre de su información',
+        dataFromCertificate: 'Datos de su certificado',
+        locationHelp: 'Ayude a las personas más cercanas a contactarlo fácilmente',
+        yourLocation: ' Su ubicación',
+        lifeProject: ' Proyecto de vida',
+        
+        // 🔴 NOUVELLES CLÉS POUR LE PROFIL (Paramètres, etc.)
+        medicalData: 'DATOS DEL CERTIFICADO MÉDICO',
+        nonModifiable: 'NO MODIFICABLES',
+        protectedSource: 'Protegido (fuente: certificado)',
+        personalData: 'DATOS PERSONALES',
+        modifiable: 'MODIFICABLES',
+        errorOccurred: 'Error durante la modificación',
+        automaticData: 'DATOS AUTOMÁTICOS',
+        certificate: 'CERTIFICADO',
+        labCertified: 'Certificado por laboratorio',
+        selfDeclared: 'Autodeclarado',
+        confidentiality: 'CONFIDENCIALIDAD',
+        currentStatus: 'Estado actual',
+        public: 'Público',
+        private: 'Privado',
+        modify: 'Editar',
+        sectionTitle: 'Ayuda a tus compañeros a saber más sobre ti',
+        subText: 'Complete los campos a continuación:',
+        photoPlaceholder: 'Añadir foto',
+        birthDate: 'Fecha de nacimiento'
+    },
+    ar: {
+        appName: 'جينلوف',
+        slogan: 'وحدة القلب والصحة لبناء أزواج أصحاء',
+        security: 'بياناتك الصحية مشفرة',
+        welcome: 'مرحباً بك في جينلوف',
+        haveAccount: 'هل لديك حساب بالفعل؟',
+        login: 'تسجيل الدخول',
+        createAccount: 'إنشاء حساب',
+        loginTitle: 'تسجيل الدخول',
+        enterName: 'أدخل اسمك الأول لتسجيل الدخول',
+        yourName: 'اسمك الأول',
+        backHome: 'العودة إلى الرئيسية ←',
+        nameNotFound: 'الاسم غير موجود. يرجى إنشاء حساب',
+        charterTitle: 'ميثاق الشرف',
+        charterSubtitle: 'اقرأ هذه الالتزامات الخمسة بعناية',
+        scrollDown: 'انتقل إلى الأسفل',
+        accept: 'أقبل وأواصل',
+        oath1: 'قسم الإخلاص',
+        oath1Sub: 'الحقيقة الطبية',
+        oath1Text: 'أتعهد بشرفي بتقديم معلومات دقيقة عن نمطي الوراثي وبياناتي الصحية',
+        oath2: 'ميثاق السرية',
+        oath2Sub: 'السر المشترك',
+        oath2Text: 'ألتزم بالحفاظ على سرية جميع المعلومات الشخصية والطبية',
+        oath3: 'مبدأ عدم التمييز',
+        oath3Sub: 'المساواة في الاحترام',
+        oath3Text: 'أعامل كل عضو بكرامة، بغض النظر عن نمطه الوراثي.',
+        oath4: '٤. المسؤولية الوقائية',
+        oath4Sub: 'التوجيه الصحي',
+        oath4Text: 'أقبل تدابير الحماية مثل تصفية التوافقيات الخطرة.',
+        oath5: '٥. الإحسان الأخلاقي',
+        oath5Sub: 'المجاملة',
+        oath5Text: 'أعتمد سلوكاً مثالياً ومحترماً في رسائلي.',
+        signupTitle: 'إنشاء ملفي الشخصي',
+        signupSub: 'جميع المعلومات سرية',
+        firstName: 'الاسم الأول',
+        lastName: 'اسم العائلة',
+        gender: 'الجنس',
+        male: 'ذكر',
+        female: 'أنثى',
+        dob: 'تاريخ الميلاد',
+        city: 'مدينة الإقامة',
+        region: 'المنطقة',
+        allRegions: 'جميع المناطق',
+        myRegion: 'منطقتي فقط',
+        genotype: 'النمط الوراثي',
+        bloodGroup: 'فصيلة الدم',
+        desireChild: 'الرغبة في الأطفال؟',
+        yes: 'نعم',
+        no: 'لا',
+        createProfile: 'إنشاء ملفي الشخصي',
+        backCharter: '→ العودة إلى الميثاق',
+        required: 'إلزامي',
+        honorTitle: 'قسم الشرف',
+        honorText: 'أؤكد بشرفي أن معلوماتي صادقة ومطابقة للواقع.',
+        swear: 'أقسم',
+        accessProfile: 'الوصول إلى ملفي الشخصي',
+        myProfile: 'ملفي الشخصي',
+        home: 'الرئيسية',
+        messages: 'الرسائل',
+        settings: 'الإعدادات',
+        genotype_label: 'النمط الوراثي',
+        blood_label: 'الفصيلة',
+        age_label: 'العمر',
+        residence_label: 'الإقامة',
+        region_label: 'المنطقة',
+        project_label: 'المشروع',
+        findPartner: 'العثور على شريك',
+        editProfile: 'تعديل الملف الشخصي',
+        compatiblePartners: 'الشركاء المتوافقون',
+        noPartners: 'لم يتم العثور على شركاء في الوقت الحالي',
+        searchOngoing: 'البحث جار...',
+        expandCommunity: 'نحن نوسع مجتمعنا. عد قريباً!',
+        details: 'التفاصيل',
+        contact: 'اتصال',
+        backProfile: '→ ملفي الشخصي',
+        toMessages: '→ الرسائل',
+        healthCommitment: 'التزامك الصحي',
+        popupMessageAS: 'كملف AS، نحن نعرض لك فقط شركاء AA. هذا الاختيار المسؤول يضمن سكينة منزلك المستقبلي ويحمي نسلك من مرض الخلايا المنجلية.',
+        popupMessageSS: 'كملف SS، نحن نعرض لك فقط شركاء AA. هذا الاختيار المسؤول يضمن سكينة منزلك المستقبلي ويحمي نسلك من مرض الخلايا المنجلية.',
+        understood: 'فهمت',
+        inboxTitle: 'صندوق الوارد',
+        emptyInbox: 'صندوق فارغ',
+        startConversation: 'ابدأ محادثة!',
+        findPartners: 'العثور على شركاء',
+        block: 'حظر',
+        unblock: 'إلغاء الحظر',
+        yourMessage: 'رسالتك...',
+        send: 'إرسال',
+        blockedByUser: 'محادثة غير ممكنة',
+        blockedMessage: 'هذا المستخدم قام بحظرك. لا يمكنك إرسال رسائل له.',
+        settingsTitle: 'الإعدادات',
+        visibility: 'رؤية الملف الشخصي',
+        notifications: 'إشعارات فورية',
+        language: 'اللغة',
+        blockedUsers: 'المستخدمون المحظورون',
+        dangerZone: '⚠️ منطقة الخطر',
+        deleteAccount: 'حذف حسابي',
+        delete: 'حذف',
+        logout: 'تسجيل الخروج',
+        confirmDelete: 'حذف نهائياً؟',
+        noBlocked: 'لا يوجد مستخدمين محظورين',
+        thankYou: 'شكراً لهذا التبادل',
+        thanksMessage: 'جينلوف تشكرك',
+        newSearch: 'بحث جديد',
+        logoutSuccess: 'تم تسجيل الخروج بنجاح',
+        seeYouSoon: 'أراك قريباً!',
+        french: 'الفرنسية',
+        english: 'الإنجليزية',
+        portuguese: 'البرتغالية',
+        spanish: 'الإسبانية',
+        arabic: 'العربية',
+        chinese: 'الصينية',
+        pageNotFound: 'الصفحة غير موجودة',
+        pageNotFoundMessage: 'الصفحة التي تبحث عنها غير موجودة.',
+        project_life: 'مشروع الحياة',
+        interestPopup: '{name} مهتم جداً بملفك الشخصي لأنكما تشاركان توافقاً جيداً. هل يمكنك أخذ بضع دقائق للدردشة؟',
+        acceptRequest: '✓ قبول',
+        rejectRequest: '✗ رفض',
+        rejectionPopup: 'عذراً، {name} لم يعطِ رداً إيجابياً على طلبك. قم بإجراء عمليات بحث أخرى.',
+        gotIt: 'فهمت',
+        returnProfile: 'ملفي الشخصي',
+        newMatch: 'بحث جديد',
+        sendingRequest: 'يتم إرسال طلبك...',
+        requestSent: 'تم إرسال الطلب!',
+        january: 'يناير',
+        february: 'فبراير',
+        march: 'مارس',
+        april: 'أبريل',
+        may: 'مايو',
+        june: 'يونيو',
+        july: 'يوليو',
+        august: 'أغسطس',
+        september: 'سبتمبر',
+        october: 'أكتوبر',
+        november: 'نوفمبر',
+        december: 'ديسمبر',
+        day: 'يوم',
+        month: 'شهر',
+        year: 'سنة',
+        
+        // QR Code translations
+        withCertificate: 'مع شهادة طبية',
+        manualEntry: 'يدوياً',
+        scanAutomatic: 'مسح تلقائي لبياناتك',
+        freeEntry: 'إدخال حر لمعلوماتك',
+        dataFromCertificate: 'بيانات من شهادتك',
+        locationHelp: 'ساعد الأشخاص الأقرب إليك على الاتصال بك بسهولة',
+        yourLocation: 'موقعك',
+        lifeProject: 'مشروع الحياة',
+        
+        // 🔴 NOUVELLES CLÉS POUR LE PROFIL (Paramètres, etc.)
+        medicalData: 'بيانات الشهادة الطبية',
+        nonModifiable: 'غير قابلة للتعديل',
+        protectedSource: 'محمي (المصدر: شهادة)',
+        personalData: 'البيانات الشخصية',
+        modifiable: 'قابلة للتعديل',
+        errorOccurred: 'خطأ أثناء التعديل',
+        automaticData: 'بيانات تلقائية',
+        certificate: 'شهادة',
+        labCertified: 'معتمد من المختبر',
+        selfDeclared: 'معلن ذاتياً',
+        confidentiality: 'السرية',
+        currentStatus: 'الحالة الحالية',
+        public: 'عام',
+        private: 'خاص',
+        modify: 'تعديل',
+        sectionTitle: 'ساعد شركاءك على معرفة المزيد عنك',
+        subText: 'يرجى ملء الحقول أدناه:',
+        photoPlaceholder: 'إضافة صورة',
+        birthDate: 'تاريخ الميلاد'
+    },
+    zh: {
+        appName: '真爱基因',
+        slogan: '结合心灵与健康，建立健康的伴侣关系',
+        security: '您的健康数据已加密',
+        welcome: '欢迎来到真爱基因',
+        haveAccount: '已有账户？',
+        login: '登录',
+        createAccount: '创建账户',
+        loginTitle: '登录',
+        enterName: '输入您的名字以登录',
+        yourName: '您的名字',
+        backHome: '← 返回首页',
+        nameNotFound: '未找到姓名。请创建账户。',
+        charterTitle: '📜 荣誉宪章',
+        charterSubtitle: '请仔细阅读这五项承诺',
+        scrollDown: '⬇️ 滚动到底部 ⬇️',
+        accept: '我接受并继续',
+        oath1: '1. 真诚誓言',
+        oath1Sub: '医疗真相',
+        oath1Text: '我以荣誉承诺提供关于我的基因型和健康数据的准确信息。',
+        oath2: '2. 保密协议',
+        oath2Sub: '共享秘密',
+        oath2Text: '我承诺对所有个人和医疗信息保密。',
+        oath3: '3. 不歧视原则',
+        oath3Sub: '平等尊重',
+        oath3Text: '我以尊严对待每位成员，不论其基因型如何。',
+        oath4: '4. 预防责任',
+        oath4Sub: '健康导向',
+        oath4Text: '我接受保护措施，如过滤有风险的兼容性。',
+        oath5: '5. 道德善意',
+        oath5Sub: '礼貌',
+        oath5Text: '我在信息中采取模范和尊重的行为。',
+        signupTitle: '创建我的个人资料',
+        signupSub: '所有信息都是保密的',
+        firstName: '名字',
+        lastName: '姓氏',
+        gender: '性别',
+        male: '男',
+        female: '女',
+        dob: '出生日期',
+        city: '居住城市',
+        region: '地区',
+        allRegions: '所有地区',
+        myRegion: '仅我的地区',
+        genotype: '基因型',
+        bloodGroup: '血型',
+        desireChild: '想要孩子吗？',
+        yes: '是',
+        no: '否',
+        createProfile: '创建个人资料',
+        backCharter: '← 返回宪章',
+        required: '必填',
+        honorTitle: '荣誉誓言',
+        honorText: '我以荣誉确认我的信息是真实的，符合实际情况。',
+        swear: '我发誓',
+        accessProfile: '访问我的个人资料',
+        myProfile: '我的个人资料',
+        home: '首页',
+        messages: '消息',
+        settings: '设置',
+        genotype_label: '基因型',
+        blood_label: '血型',
+        age_label: '年龄',
+        residence_label: '居住地',
+        region_label: '地区',
+        project_label: '项目',
+        findPartner: '寻找伴侣',
+        editProfile: '编辑个人资料',
+        compatiblePartners: '兼容的伴侣',
+        noPartners: '目前未找到伴侣',
+        searchOngoing: '搜索中...',
+        expandCommunity: '我们正在扩大社区。请稍后再来！',
+        details: '详情',
+        contact: '联系',
+        backProfile: '← 我的个人资料',
+        toMessages: '消息 →',
+        healthCommitment: '您的健康承诺',
+        popupMessageAS: '作为AS档案，我们只向您展示AA伴侣。这一负责任的选择保证了您未来家庭的安宁，并保护您的后代免受镰状细胞病的影响。',
+        popupMessageSS: '作为SS档案，我们只向您展示AA伴侣。这一负责任的选择保证了您未来家庭的安宁，并保护您的后代免受镰状细胞病的影响。',
+        understood: '我明白',
+        inboxTitle: '收件箱',
+        emptyInbox: '空收件箱',
+        startConversation: '开始对话！',
+        findPartners: '寻找伴侣',
+        block: '屏蔽',
+        unblock: '解除屏蔽',
+        yourMessage: '您的消息...',
+        send: '发送',
+        blockedByUser: '无法对话',
+        blockedMessage: '此用户已屏蔽您。您无法向他发送消息。',
+        settingsTitle: '设置',
+        visibility: '个人资料可见性',
+        notifications: '推送通知',
+        language: '语言',
+        blockedUsers: '已屏蔽用户',
+        dangerZone: '⚠️ 危险区域',
+        deleteAccount: '删除我的帐户',
+        delete: '删除',
+        logout: '退出',
+        confirmDelete: '永久删除？',
+        noBlocked: '没有已屏蔽的用户',
+        thankYou: '感谢您的交流',
+        thanksMessage: '真爱基因感谢您',
+        newSearch: '新搜索',
+        logoutSuccess: '退出成功',
+        seeYouSoon: '再见！',
+        french: '法语',
+        english: '英语',
+        portuguese: '葡萄牙语',
+        spanish: '西班牙语',
+        arabic: '阿拉伯语',
+        chinese: '中文',
+        pageNotFound: '页面未找到',
+        pageNotFoundMessage: '您查找的页面不存在。',
+        project_life: '人生计划',
+        interestPopup: '{name} 被您的个人资料深深吸引，因为你们有良好的兼容性。您能花几分钟聊聊吗？',
+        acceptRequest: '√ 接受',
+        rejectRequest: '× 拒绝',
+        rejectionPopup: '抱歉，{name} 没有对您的请求给予积极回应。继续搜索吧。',
+        gotIt: '明白了',
+        returnProfile: '我的个人资料',
+        newMatch: '新搜索',
+        sendingRequest: '您的请求正在发送中...',
+        requestSent: '请求已发送！',
+        january: '一月',
+        february: '二月',
+        march: '三月',
+        april: '四月',
+        may: '五月',
+        june: '六月',
+        july: '七月',
+        august: '八月',
+        september: '九月',
+        october: '十月',
+        november: '十一月',
+        december: '十二月',
+        day: '日',
+        month: '月',
+        year: '年',
+        
+        // QR Code translations
+        withCertificate: '使用医疗证书',
+        manualEntry: '手动输入',
+        scanAutomatic: '自动扫描您的数据',
+        freeEntry: '自由输入您的信息',
+        dataFromCertificate: '来自您证书的数据',
+        locationHelp: '帮助离您最近的人轻松联系您',
+        yourLocation: '您的位置',
+        lifeProject: '人生计划',
+        
+        // 🔴 NOUVELLES CLÉS POUR LE PROFIL (Paramètres, etc.)
+        medicalData: '医疗证书数据',
+        nonModifiable: '不可修改',
+        protectedSource: '受保护（来源：证书）',
+        personalData: '个人数据',
+        modifiable: '可修改',
+        errorOccurred: '修改时出错',
+        automaticData: '自动数据',
+        certificate: '证书',
+        labCertified: '实验室认证',
+        selfDeclared: '自我声明',
+        confidentiality: '保密',
+        currentStatus: '当前状态',
+        public: '公开',
+        private: '私密',
+        modify: '编辑',
+        sectionTitle: '帮助您的伴侣更多了解您',
+        subText: '请填写以下字段：',
+        photoPlaceholder: '添加照片',
+        birthDate: '出生日期'
+    }
+};
+
+// Middleware de traduction
+app.use(async (req, res, next) => {
+    if (req.session && req.session.userId) {
+        try {
+            const user = await User.findById(req.session.userId);
+            req.lang = (user && user.language) ? user.language : 'fr';
+        } catch {
+            req.lang = 'fr';
+        }
+    } else {
+        const acceptLanguage = req.headers['accept-language'] || '';
+        if (acceptLanguage.includes('pt')) req.lang = 'pt';
+        else if (acceptLanguage.includes('es')) req.lang = 'es';
+        else if (acceptLanguage.includes('ar')) req.lang = 'ar';
+        else if (acceptLanguage.includes('zh')) req.lang = 'zh';
+        else if (acceptLanguage.includes('en')) req.lang = 'en';
+        else req.lang = 'fr';
+    }
+    
+    req.t = (key, params = {}) => {
+        let text = translations[req.lang]?.[key] || translations.fr[key] || key;
+        for (const [k, v] of Object.entries(params)) {
+            text = text.replace(`{${k}}`, v);
+        }
+        return text;
+    };
+    next();
+});
+
+// ============================================
+// STYLES CSS COMPLETS
+// ============================================
+const styles = `
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+        background: #fdf2f2;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        min-height: 100vh;
+        font-size: 16px;
+    }
+    .app-shell {
+        width: 100%;
+        max-width: 420px;
+        min-height: 100vh;
+        background: #f4e9da;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 0 30px rgba(0,0,0,0.1);
+        margin: 0 auto;
+    }
+    .page-white {
+        background: white;
+        padding: 20px;
+        flex: 1;
+    }
+    h1 { font-size: 2.4rem; margin: 10px 0; }
+    h2 { font-size: 2rem; margin-bottom: 20px; color: #1a2a44; }
+    h3 { font-size: 1.6rem; margin: 15px 0; }
+    p { font-size: 1.2rem; line-height: 1.6; }
+    
+    /* Logo */
+    .logo-container {
+        width: 180px;
+        height: 180px;
+        margin: 0 auto 10px;
+        position: relative;
+        animation: gentlePulse 3s infinite ease-in-out;
+    }
+    
+    @keyframes gentlePulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.02); }
+        100% { transform: scale(1); }
+    }
+    
+    .logo-text {
+        font-size: 3rem;
+        font-weight: 800;
+        margin: 5px 0 20px;
+        letter-spacing: -1px;
+        text-align: center;
+    }
+    .slogan {
+        font-weight: 500;
+        color: #1a2a44;
+        margin: 10px 25px 30px;
+        font-size: 1.2rem;
+        line-height: 1.5;
+        text-align: center;
+    }
+    .home-screen {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        text-align: center;
+        background: linear-gradient(135deg, #fff5f7 0%, #f4e9da 100%);
+    }
+    
+    /* Sélecteur de langue compact */
+    .language-selector-compact {
+        position: relative;
+        margin: 10px 0 20px;
+    }
+    .lang-btn-compact {
+        background: white;
+        border: 2px solid #ff416c;
+        color: #1a2a44;
+        padding: 10px 20px;
+        border-radius: 30px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .lang-btn-compact:hover {
+        background: #ff416c;
+        color: white;
+    }
+    .language-dropdown {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        z-index: 1000;
+        min-width: 180px;
+        margin-top: 5px;
+    }
+    .dropdown-item {
+        display: block;
+        padding: 12px 20px;
+        text-decoration: none;
+        color: #1a2a44;
+        border-bottom: 1px solid #eee;
+        transition: background 0.2s;
+    }
+    .dropdown-item:last-child {
+        border-bottom: none;
+    }
+    .dropdown-item:hover {
+        background: #f8f9fa;
+    }
+    
+    /* Boutons */
+    .btn-pink, .btn-dark {
+        padding: 15px 25px;
+        border-radius: 60px;
+        font-size: 1.2rem;
+        font-weight: 600;
+        width: 90%;
+        margin: 10px auto;
+        display: block;
+        text-align: center;
+        text-decoration: none;
+        border: none;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    .btn-pink {
+        background: #ff416c;
+        color: white;
+        box-shadow: 0 10px 20px rgba(255,65,108,0.3);
+    }
+    .btn-dark {
+        background: #1a2a44;
+        color: white;
+        box-shadow: 0 10px 20px rgba(26,42,68,0.3);
+    }
+    .btn-pink:hover, .btn-dark:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 15px 30px rgba(255,65,108,0.4);
+    }
+    .btn-action {
+        padding: 10px 15px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        border-radius: 30px;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .btn-contact { background: #ff416c; color: white; }
+    .btn-details { background: #1a2a44; color: white; }
+    .btn-block { background: #dc3545; color: white; }
+    
+    /* Inputs */
+    .input-box {
+        width: 100%;
+        padding: 14px;
+        border: 2px solid #e2e8f0;
+        border-radius: 15px;
+        margin: 8px 0;
+        font-size: 1rem;
+        background: #f8f9fa;
+        transition: all 0.3s;
+    }
+    .input-box:focus {
+        border-color: #ff416c;
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(255,65,108,0.2);
+    }
+    .input-label {
+        text-align: left;
+        font-size: 0.9rem;
+        color: #1a2a44;
+        margin-top: 10px;
+        font-weight: 600;
+    }
+    input[readonly] {
+        background: #f0f0f0;
+        border-color: #4caf50;
+        color: #333;
+    }
+    
+    /* Date picker horizontal */
+    .custom-date-picker {
+        display: flex;
+        gap: 5px;
+        margin: 10px 0;
+    }
+    .date-part {
+        flex: 1;
+        padding: 12px;
+        border: 2px solid #e2e8f0;
+        border-radius: 15px;
+        font-size: 0.9rem;
+        background: #f8f9fa;
+    }
+    .date-part:focus {
+        border-color: #ff416c;
+        outline: none;
+    }
+    
+    /* Photo */
+    .photo-circle {
+        width: 110px;
+        height: 110px;
+        border: 4px solid #ff416c;
+        border-radius: 50%;
+        margin: 15px auto;
+        background-size: cover;
+        background-position: center;
+        box-shadow: 0 10px 25px rgba(255,65,108,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+    }
+    
+    /* Match cards */
+    .match-card {
+        background: white;
+        border-radius: 25px;
+        margin: 10px 15px;
+        padding: 15px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
+    .match-photo-blur {
+        width: 55px;
+        height: 55px;
+        border-radius: 50%;
+        background: #eee;
+        filter: blur(6px);
+        flex-shrink: 0;
+        background-size: cover;
+    }
+    .match-info {
+        flex: 1;
+    }
+    .match-actions {
+        display: flex;
+        gap: 8px;
+    }
+    
+    /* Style groups */
+    .st-group {
+        background: white;
+        border-radius: 15px;
+        margin: 0 15px 15px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        text-align: left;
+    }
+    .st-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px 20px;
+        border-bottom: 1px solid #f8f8f8;
+        color: #333;
+        font-size: 0.95rem;
+    }
+    .st-item:last-child {
+        border-bottom: none;
+    }
+    
+    /* Charte améliorée */
+    .charte-box {
+        height: 400px;
+        overflow-y: auto;
+        background: #fff5f7;
+        border: 2px solid #ffdae0;
+        border-radius: 25px;
+        padding: 30px;
+        font-size: 1.1rem;
+        color: #1a2a44;
+        line-height: 1.6;
+        margin: 20px 0;
+        text-align: left;
+    }
+    .charte-section {
+        margin-bottom: 30px;
+        padding-bottom: 20px;
+        border-bottom: 2px dashed #ffdae0;
+    }
+    .charte-section:last-child {
+        border-bottom: none;
+    }
+    .charte-title {
+        color: #ff416c;
+        font-size: 1.3rem;
+        font-weight: bold;
+        margin-bottom: 8px;
+    }
+    .charte-subtitle {
+        color: #1a2a44;
+        font-size: 1.1rem;
+        font-style: italic;
+        margin-bottom: 8px;
+    }
+    .scroll-indicator {
+        text-align: center;
+        color: #ff416c;
+        font-size: 1rem;
+        margin: 15px 0;
+        padding: 10px;
+        background: rgba(255,65,108,0.1);
+        border-radius: 40px;
+    }
+    
+    /* Popups */
+    #request-popup, #rejection-popup, #loading-popup, #genlove-popup, #popup-overlay, #delete-confirm-popup {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.9);
+        z-index: 10000;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        backdrop-filter: blur(5px);
+    }
+    .popup-card, .popup-content {
+        background: white;
+        border-radius: 30px;
+        padding: 30px 25px;
+        max-width: 380px;
+        width: 100%;
+        text-align: center;
+        animation: popupAppear 0.4s ease-out;
+        border: 3px solid #ff416c;
+        box-shadow: 0 20px 40px rgba(255,65,108,0.3);
+        position: relative;
+    }
+    .close-popup {
+        position: absolute;
+        top: 15px;
+        right: 15px;
+        font-size: 1.5rem;
+        cursor: pointer;
+        color: #666;
+    }
+    .popup-icon {
+        font-size: 3rem;
+        margin-bottom: 10px;
+    }
+    .popup-title {
+        color: #ff416c;
+        font-size: 1.4rem;
+        font-weight: bold;
+        margin-bottom: 15px;
+    }
+    .popup-message, .popup-msg {
+        color: #1a2a44;
+        font-size: 1.1rem;
+        line-height: 1.6;
+        margin-bottom: 20px;
+        padding: 0 10px;
+    }
+    .popup-msg {
+        background: #e7f3ff;
+        padding: 15px;
+        border-radius: 12px;
+        border-left: 5px solid #007bff;
+        text-align: left;
+    }
+    .popup-buttons {
+        display: flex;
+        gap: 15px;
+        margin: 15px 0;
+    }
+    .popup-buttons button {
+        flex: 1;
+        padding: 15px;
+        border: none;
+        border-radius: 50px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    .accept-btn { background: #ff416c; color: white; }
+    .reject-btn { background: #1a2a44; color: white; }
+    .action-buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+    }
+    .ok-btn {
+        background: #ff416c;
+        color: white;
+        padding: 15px;
+        border: none;
+        border-radius: 50px;
+        font-weight: bold;
+        cursor: pointer;
+        width: 100%;
+    }
+    
+    /* Loader amélioré */
+    #loader {
+        display: none;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 30px;
+        border-radius: 20px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        z-index: 20000;
+        text-align: center;
+        min-width: 250px;
+    }
+    .spinner {
+        width: 50px;
+        height: 50px;
+        border: 5px solid #f3f3f3;
+        border-top: 5px solid #ff416c;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 20px;
+    }
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    
+    @keyframes popupAppear {
+        from {
+            opacity: 0;
+            transform: translateY(30px) scale(0.9);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+    
+    /* Notification */
+    #genlove-notify {
+        position: fixed;
+        top: -100px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 90%;
+        max-width: 380px;
+        background: #1a2a44;
+        color: white;
+        padding: 15px 20px;
+        border-radius: 60px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        transition: 0.5s;
+        z-index: 9999;
+        box-shadow: 0 15px 30px rgba(0,0,0,0.3);
+        border-left: 5px solid #ff416c;
+        font-size: 1rem;
+    }
+    #genlove-notify.show { top: 20px; }
+    
+    /* Navigation */
+    .navigation {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+    }
+    .nav-link {
+        flex: 1;
+        text-align: center;
+        padding: 12px;
+        background: white;
+        text-decoration: none;
+        color: #1a2a44;
+        border-radius: 30px;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.05);
+        font-size: 1rem;
+    }
+    .back-link {
+        display: inline-block;
+        margin: 15px 0;
+        color: #666;
+        text-decoration: none;
+        font-size: 1rem;
+    }
+    
+    /* Styles pour le choix d'inscription */
+    .choice-screen {
+        padding: 20px;
+    }
+    .options {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        margin: 30px 0;
+    }
+    .option-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 25px;
+        border-radius: 20px;
+        text-align: center;
+        cursor: pointer;
+        transition: transform 0.3s;
+    }
+    .option-card:hover {
+        transform: translateY(-5px);
+    }
+    .option-card .icon {
+        font-size: 3rem;
+        margin-bottom: 10px;
+    }
+    .option-card h3 {
+        color: white;
+        margin-bottom: 5px;
+    }
+    .option-card p {
+        font-size: 0.9rem;
+        opacity: 0.9;
+    }
+    .option-card.manual {
+        background: #f0f0f0;
+        color: #333;
+    }
+    .option-card.manual h3 {
+        color: #333;
+    }
+    
+    /* Styles pour QR (version simplifiée comme dans ton code) */
+    .qr-card {
+        background: white;
+        padding: 20px;
+        border-radius: 20px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        width: 100%;
+        max-width: 400px;
+        margin: 0 auto;
+    }
+    #reader {
+        width: 100%;
+        border-radius: 12px;
+        overflow: hidden;
+        margin-bottom: 20px;
+    }
+    .debug-box {
+        background: #f0f0f0;
+        padding: 10px;
+        border-radius: 8px;
+        font-size: 0.8rem;
+        word-break: break-all;
+        margin: 10px 0;
+        display: none;
+        border-left: 5px solid #ff416c;
+    }
+    .locked {
+        background: #e8f5e9;
+        border-color: #4caf50;
+    }
+    .test-buttons {
+        display: flex;
+        gap: 5px;
+        margin: 15px 0;
+    }
+    .test-btn {
+        flex: 1;
+        background: #1a2a44;
+        color: white;
+        border: none;
+        padding: 10px;
+        border-radius: 30px;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    .qr-link {
+        text-align: center;
+        margin: 15px 0;
+        color: #ff416c;
+        display: block;
+    }
+    .qr-fields {
+        background: #e8f5e9;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 15px 0;
+    }
+    .qr-fields h3 {
+        color: #2e7d32;
+        margin-bottom: 10px;
+        font-size: 1rem;
+    }
+    .info-message {
+        background: #e3f2fd;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 15px 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border-left: 5px solid #2196f3;
+    }
+    .info-icon {
+        font-size: 1.5rem;
+    }
+    .info-message p {
+        color: #0d47a1;
+        font-size: 0.9rem;
+        margin: 0;
+    }
+    .manual-fields {
+        background: #fff3e0;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 15px 0;
+    }
+    .manual-fields h3 {
+        color: #bf360c;
+        margin-bottom: 10px;
+        font-size: 1rem;
+    }
+    .verified-badge {
+        background: #4caf50;
+        color: white;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        display: inline-block;
+    }
+    .unverified-badge {
+        background: #ff9800;
+        color: white;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        display: inline-block;
+    }
+    .filter-container {
+        padding: 15px;
+        background: white;
+        margin: 10px 15px;
+        border-radius: 15px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+    
+    @media (max-width: 420px) {
+        body { font-size: 15px; }
+        .app-shell { max-width: 100%; }
+        .logo-container { width: 150px; height: 150px; }
+        .logo-text { font-size: 2.5rem; }
+        h2 { font-size: 1.8rem; }
+        .btn-pink, .btn-dark { width: 95%; padding: 15px; }
+    }
+</style>
+`;
+
+// ============================================
+// NOTIFICATION SCRIPT
+// ============================================
+const notifyScript = `
+<script>
+function showNotify(msg, type) {
+    const n = document.getElementById('genlove-notify');
+    const m = document.getElementById('notify-msg');
+    if(m) m.innerText = msg;
+    if(n) {
+        n.style.backgroundColor = type === 'success' ? '#4CAF50' : '#1a2a44';
+        n.classList.add('show');
+    }
+    setTimeout(() => n.classList.remove('show'), 3000);
+}
+function vibrate(pattern) {
+    if ("vibrate" in navigator) navigator.vibrate(pattern);
+}
+</script>
+`;
+
+// ============================================
+// FONCTIONS UTILITAIRES
+// ============================================
+function calculerAge(dateNaissance) {
+    if (!dateNaissance) return "?";
+    const today = new Date();
+    const birthDate = new Date(dateNaissance);
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) age--;
+    return age;
+}
+
+function formatTimeAgo(timestamp, lang = 'fr') {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (lang === 'fr') {
+        if (diffMins < 1) return "À l'instant";
+        if (diffMins < 60) return `Il y a ${diffMins} min`;
+        if (diffHours < 24) return `Il y a ${diffHours} h`;
+        if (diffDays === 1) return 'Hier';
+        return date.toLocaleDateString('fr-FR');
+    } else if (lang === 'en') {
+        if (diffMins < 1) return "Just now";
+        if (diffMins < 60) return `${diffMins} min ago`;
+        if (diffHours < 24) return `${diffHours} hours ago`;
+        if (diffDays === 1) return 'Yesterday';
+        return date.toLocaleDateString('en-US');
+    } else if (lang === 'pt') {
+        if (diffMins < 1) return "Agora mesmo";
+        if (diffMins < 60) return `${diffMins} min atrás`;
+        if (diffHours < 24) return `${diffHours} horas atrás`;
+        if (diffDays === 1) return 'Ontem';
+        return date.toLocaleDateString('pt-BR');
+    } else if (lang === 'es') {
+        if (diffMins < 1) return "Ahora mismo";
+        if (diffMins < 60) return `hace ${diffMins} min`;
+        if (diffHours < 24) return `hace ${diffHours} h`;
+        if (diffDays === 1) return 'Ayer';
+        return date.toLocaleDateString('es-ES');
+    } else if (lang === 'ar') {
+        if (diffMins < 1) return "الآن";
+        if (diffMins < 60) return `منذ ${diffMins} دقيقة`;
+        if (diffHours < 24) return `منذ ${diffHours} ساعة`;
+        if (diffDays === 1) return 'أمس';
+        return date.toLocaleDateString('ar-SA');
+    } else if (lang === 'zh') {
+        if (diffMins < 1) return "刚刚";
+        if (diffMins < 60) return `${diffMins}分钟前`;
+        if (diffHours < 24) return `${diffHours}小时前`;
+        if (diffDays === 1) return '昨天';
+        return date.toLocaleDateString('zh-CN');
+    }
+    return date.toLocaleDateString();
+}
+
+function generateDateOptions(req, selectedDate = null) {
+    const t = req.t;
+    const lang = req.lang;
+    const months = {
+        fr: ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'],
+        en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+        pt: ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
+        es: ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'],
+        ar: ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'],
+        zh: ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月']
+    };
+    const monthList = months[lang] || months.fr;
+    const currentYear = new Date().getFullYear();
+    const selected = selectedDate ? new Date(selectedDate) : null;
+    
+    let html = '<div class="custom-date-picker">';
+    
+    html += '<select name="day" class="date-part" required><option value="">' + t('day') + '</option>';
+    for (let d = 1; d <= 31; d++) {
+        const sel = (selected && selected.getDate() === d) ? 'selected' : '';
+        html += `<option value="${d}" ${sel}>${d}</option>`;
+    }
+    html += '</select>';
+    
+    html += '<select name="month" class="date-part" required><option value="">' + t('month') + '</option>';
+    for (let m = 0; m < 12; m++) {
+        const monthVal = m + 1;
+        const sel = (selected && selected.getMonth() === m) ? 'selected' : '';
+        html += `<option value="${monthVal}" ${sel}>${monthList[m]}</option>`;
+    }
+    html += '</select>';
+    
+    html += '<select name="year" class="date-part" required><option value="">' + t('year') + '</option>';
+    for (let y = currentYear - 100; y <= currentYear - 18; y++) {
+        const sel = (selected && selected.getFullYear() === y) ? 'selected' : '';
+        html += `<option value="${y}" ${sel}>${y}</option>`;
+    }
+    html += '</select></div>';
+    
+    return html;
+}
+
+// ============================================
+// ROUTES
+// ============================================
+
+app.get('/lang/:lang', async (req, res) => {
+    const lang = req.params.lang;
+    if (['fr','en','pt','es','ar','zh'].includes(lang)) {
+        if (req.session.userId) {
+            await User.findByIdAndUpdate(req.session.userId, { language: lang });
+        }
+        req.session.lang = lang;
+    }
+    res.redirect(req.get('referer') || '/');
+});
+
+// ============================================
+// ACCUEIL
+// ============================================
 app.get('/', (req, res) => {
-  res.send(`
-<!DOCTYPE html>
+    const t = req.t;
+    const currentLang = req.lang;
+    
+    res.send(`<!DOCTYPE html>
 <html>
 <head>
-  <title>Login Laboratório</title>
-  <style>body{background:#006633;font-family:Arial;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}.box{background:white;padding:30px;border-radius:10px;width:300px;box-shadow:0 5px 15px rgba(0,0,0,0.3);}h2{text-align:center;color:#006633;margin-bottom:20px;}input,button{width:100%;padding:12px;margin:8px 0;box-sizing:border-box;border-radius:5px;border:1px solid #ddd;}button{background:#006633;color:white;border:none;font-weight:bold;cursor:pointer;}button:hover{background:#004d26;}.erro{color:#c00;text-align:center;margin-top:10px;}</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - ${t('welcome')}</title>
+    ${styles}
+    ${notifyScript}
 </head>
 <body>
-<div class="box"><h2>🔬 Laboratório SNS</h2><input type="text" id="apiKey" placeholder="Chave API (LAB-...)" autofocus><button onclick="login()">Entrar</button><p id="erro" class="erro"></p></div>
-<script>
-async function login(){
-  const key=document.getElementById('apiKey').value;
-  const erro=document.getElementById('erro');
-  if(!key){ erro.innerText='Digite a chave API'; return; }
-  try{
-    const r=await fetch('/api/laboratorio/login',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({apiKey:key})
+    <div class="app-shell">
+        <div class="home-screen">
+            <div class="language-selector-compact">
+                <button onclick="toggleLanguageDropdown()" class="lang-btn-compact">
+                    <span>🌐</span> 
+                    <span id="selected-language">${t('french')}</span>
+                    <span style="font-size: 0.8rem;">▼</span>
+                </button>
+                <div id="language-dropdown" class="language-dropdown">
+                    <a href="/lang/fr" class="dropdown-item">🇫🇷 ${t('french')}</a>
+                    <a href="/lang/en" class="dropdown-item">🇬🇧 ${t('english')}</a>
+                    <a href="/lang/pt" class="dropdown-item">🇵🇹 ${t('portuguese')}</a>
+                    <a href="/lang/es" class="dropdown-item">🇪🇸 ${t('spanish')}</a>
+                    <a href="/lang/ar" class="dropdown-item">🇸🇦 ${t('arabic')}</a>
+                    <a href="/lang/zh" class="dropdown-item">🇨🇳 ${t('chinese')}</a>
+                </div>
+            </div>
+            
+            <div class="logo-container">
+                <svg viewBox="0 0 200 200" style="width: 100%; height: 100%;">
+                    <path d="M100 170 L35 90 C15 60 35 20 65 20 C80 20 92 35 100 45 C108 35 120 20 135 20 C165 20 185 60 165 90 L100 170" 
+                          fill="#FF69B4" opacity="0.9" stroke="#333" stroke-width="2"/>
+                    <path d="M45 50 L45 140" stroke="#4169E1" stroke-width="4" fill="none" stroke-dasharray="8 8"/>
+                    <path d="M65 50 L65 140" stroke="#32CD32" stroke-width="4" fill="none" stroke-dasharray="8 8"/>
+                    <circle cx="145" cy="80" r="28" fill="white" stroke="#333" stroke-width="2" opacity="0.95"/>
+                    <rect x="163" y="95" width="25" height="8" rx="4" fill="white" stroke="#333" stroke-width="1.5" transform="rotate(35, 170, 100)"/>
+                    <circle cx="145" cy="80" r="10" fill="#FFD700" opacity="0.8"/>
+                </svg>
+            </div>
+            
+            <div class="logo-text">
+                <span style="color:#1a2a44;">Gen</span><span style="color:#FF69B4;">love</span>
+            </div>
+            
+            <div class="slogan">${t('slogan')}</div>
+            
+            <div style="font-size:1.1rem; color:#1a2a44; margin:20px 0 10px;">${t('haveAccount')}</div>
+            <a href="/login" class="btn-dark">${t('login')}</a>
+            <a href="/signup-email" class="btn-pink">${t('createAccount')}</a>            <div style="margin-top:30px; font-size:0.9rem; color:#666;">${t('security')}</div>
+        </div>
+    </div>
+    
+    <script>
+        function toggleLanguageDropdown() {
+            const dropdown = document.getElementById('language-dropdown');
+            dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('language-dropdown');
+            const button = event.target.closest('.lang-btn-compact');
+            if (!button && dropdown.style.display === 'block') {
+                dropdown.style.display = 'none';
+            }
+        });
+        
+        document.querySelectorAll('.dropdown-item').forEach(item => {
+            item.addEventListener('click', function(e) {
+                const langText = this.innerText.replace(/[🇫🇷🇬🇧🇵🇹🇪🇸🇸🇦🇨🇳]/g, '').trim();
+                document.getElementById('selected-language').innerText = langText;
+            });
+        });
+    </script>
+</body>
+</html>`);
+});
+
+// ============================================
+// PAGE DE CONNEXION - EMAIL ET MOT DE PASSE
+// ============================================
+app.get('/login', (req, res) => {
+  const t = req.t;
+  
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+  <title>${t('appName')} - ${t('loginTitle')}</title>
+  ${styles}
+  ${notifyScript}
+</head>
+<body>
+  <div class="app-shell">
+    <div class="page-white">
+      <h2 style="text-align: center;">${t('loginTitle')}</h2>
+      <p style="text-align: center; margin-bottom: 20px;">Conectar-se com sua palavra passe</p>
+      
+      <form id="loginForm">
+        <div class="input-label">Email</div>
+        <input type="email" id="email" class="input-box" placeholder="seu@email.com" required>
+        
+        <div class="input-label">palavra passe</div>
+<div style="position: relative;">
+  <input type="password" id="password" class="input-box" placeholder="••••••" required style="padding-right: 45px;">
+  <span onclick="togglePassword('password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+</div>
+        
+        <button type="submit" class="btn-pink">${t('login')}</button>
+      </form>
+      
+      <div style="text-align: center; margin-top: 20px;">
+        <a href="/signup-email" class="back-link">Ainda não tens conta? Criar conta</a>
+      </div>
+      
+      <a href="/" class="back-link">← ${t('backHome')}</a>
+    </div>
+  </div>
+  
+  <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
+  
+  <script>
+    function showNotify(msg, type) {
+      const notify = document.getElementById('genlove-notify');
+      const msgSpan = document.getElementById('notify-msg');
+      msgSpan.innerText = msg;
+      notify.style.backgroundColor = type === 'success' ? '#4CAF50' : '#dc3545';
+      notify.classList.add('show');
+      setTimeout(() => notify.classList.remove('show'), 3000);
+    }
+    
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      
+      if (!email || !password) {
+        showNotify("Preencha todos os campos, por favor", "error");
+        return;
+      }
+      
+      showNotify("Conectando...", "info");
+      
+      try {
+        const response = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          showNotify("✅ Conectado com sucesso!", "success");
+          setTimeout(() => window.location.href = '/profile', 1000);
+        } else {
+          showNotify(data.error || "❌ Échec de connexion", "error");
+        }
+      } catch(e) {
+        showNotify("❌ Erro de conexão", "error");
+      }
     });
-    const data=await r.json();
-    if(r.ok){
-      localStorage.setItem('token',data.token);
-      localStorage.setItem('labNome',data.lab.nome);
-      window.location.href='/dashboard';
-    } else {
-      erro.innerText=data.erro||'Erro na autenticação';
-    }
-  }catch(e){ erro.innerText='Erro de ligação ao servidor'; }
+function togglePassword(fieldId) {
+  const field = document.getElementById(fieldId);
+  if (field.type === "password") {
+    field.type = "text";
+  } else {
+    field.type = "password";
+  }
 }
-</script>
-</body></html>
-  `);
+  </script>
+</body>
+</html>`);
 });
 
-app.get('/dashboard', (req, res) => {
-  res.send(`
-<!DOCTYPE html>
-<html lang="pt">
+// ============================================
+// PAGE D'INSCRIPTION - EMAIL ET MOT DE PASSE
+// ============================================
+app.get('/signup-email', (req, res) => {
+  const t = req.t;
+  
+  res.send(`<!DOCTYPE html>
+<html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard Laboratório</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+  <title>${t('appName')} - Criar a minha conta</title>
+  ${styles}
+  ${notifyScript}
   <style>
-    * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',sans-serif; }
-    body { background:#f5f7fa; display:flex; min-height:100vh; }
-    .sidebar { width:260px; background:#006633; color:white; padding:2rem 1rem; display:flex; flex-direction:column; }
-    .sidebar h2 { font-size:1.5rem; margin-bottom:2rem; text-align:center; border-bottom:1px solid rgba(255,255,255,0.2); padding-bottom:1rem; }
-    .sidebar a, .sidebar button { display:block; width:100%; padding:0.8rem 1rem; margin:0.5rem 0; border:none; background:rgba(255,255,255,0.1); color:white; text-align:left; border-radius:8px; cursor:pointer; font-size:1rem; text-decoration:none; }
-    .sidebar a:hover, .sidebar button:hover { background:rgba(255,255,255,0.2); }
-    .sidebar .novo-btn { background:#ffaa00; color:#00331a; font-weight:bold; }
-    .sidebar .sair-btn { margin-top:auto; background:#c0392b; }
-    .main { flex:1; padding:2rem; overflow-y:auto; }
-    .header { display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem; }
-    .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:1.5rem; margin-bottom:2rem; }
-    .card { background:white; border-radius:12px; padding:1.5rem; box-shadow:0 4px 10px rgba(0,0,0,0.05); border-left:6px solid #006633; }
-    .card .numero { font-size:2.5rem; font-weight:bold; color:#006633; }
-    .filtros { display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap; }
-    .filtros select, .filtros input { padding:0.8rem; border:1px solid #ddd; border-radius:8px; flex:1; }
-    table { width:100%; border-collapse:collapse; background:white; border-radius:12px; overflow:hidden; }
-    th { background:#006633; color:white; padding:1rem; text-align:left; }
-    td { padding:1rem; border-bottom:1px solid #eee; }
-    .btn { background:#006633; color:white; border:none; padding:0.5rem 1rem; border-radius:6px; cursor:pointer; }
-    .badge { background:#e8f5e9; color:#2e7d32; padding:0.2rem 0.5rem; border-radius:20px; font-size:0.8rem; }
+    .info-message {
+      background: #e3f2fd;
+      padding: 15px;
+      border-radius: 15px;
+      margin: 20px 0;
+      border-left: 5px solid #2196f3;
+    }
+    .info-message p {
+      margin: 0;
+      font-size: 0.9rem;
+      color: #0d47a1;
+    }
   </style>
 </head>
 <body>
-<div class="sidebar">
-  <h2>SNS • LAB</h2>
-  <a href="#" onclick="mostrarSecao('dashboard')">📊 Dashboard</a>
-  <a href="#" onclick="mostrarSecao('certificados')">📜 Certificados</a>
-  <a href="#" class="novo-btn" onclick="window.location.href='/novo-certificado'">➕ Novo Certificado</a>
-  <button class="sair-btn" onclick="logout()">🚪 Sair</button>
+  <div class="app-shell">
+    <div class="page-white">
+      <h2 style="color:#ff416c;">Criar a minha conta</h2>
+      <p style="margin-bottom: 20px;">Insira o seu email e senha para criar a sua conta   Genlove.</p>
+      
+      <div class="info-message">
+        <p>📧 Um email de confirmação será enviado após a aceitação do termo de honra .</p>
+      </div>
+      
+      <form id="signupForm">
+        <div class="input-label">Email</div>
+        <input type="email" id="email" class="input-box" placeholder="seu@email.com" required>
+        
+        <div class="input-label">Senha</div>
+<div style="position: relative;">
+  <input type="password" id="password" class="input-box" placeholder="•••••• (mínimo 6 caráctères)" required style="padding-right: 45px;">
+  <span onclick="togglePassword('password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
 </div>
-<div class="main">
-  <div class="header"><h1>Bem-vindo, <span id="labNome"></span></h1><span id="dataAtual"></span></div>
-  <div id="secaoDashboard" style="display:block;">
-    <div class="cards">
-      <div class="card"><h3>Total de Certificados</h3><div class="numero" id="totalCert">0</div></div>
-      <div class="card"><h3>Por Tipo</h3><div id="statsTipo"></div></div>
+
+<div class="input-label">Confirmar a senha</div>
+<div style="position: relative;">
+  <input type="password" id="confirmPassword" class="input-box" placeholder="••••••" required style="padding-right: 45px;">
+  <span onclick="togglePassword('confirmPassword')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+</div>
+        
+        <button type="submit" class="btn-pink">Prosseguir para a carta de honra →</button>
+      </form>
+      
+      <a href="/" class="back-link">← Voltar para a página inicial </a>
     </div>
   </div>
-  <div id="secaoCertificados" style="display:none;">
-    <div class="filtros">
-      <select id="filtroTipo">
-        <option value="">Todos os tipos</option>
-        <option value="1">Genótipo</option><option value="2">Boa Saúde</option><option value="3">Incapacidade</option>
-        <option value="4">Aptidão</option><option value="5">Saúde Materna</option><option value="6">Pré-Natal</option>
-        <option value="7">Epidemiológico</option><option value="8">CSD</option>
-      </select>
-      <input type="text" id="buscaPaciente" placeholder="Buscar paciente...">
-      <button class="btn" onclick="carregarCertificados()">Filtrar</button>
-    </div>
-    <table>
-      <thead><tr><th>Nº Certificado</th><th>Paciente</th><th>Tipo</th><th>Data</th><th>Ações</th></tr></thead>
-      <tbody id="tabelaCertificados"><tr><td colspan="5" style="text-align:center;">Carregando...</td></tr></tbody>
-    </table>
-  </div>
-</div>
-<script>
-const token = localStorage.getItem('token');
-if (!token) window.location.href = '/';
-document.getElementById('labNome').innerText = localStorage.getItem('labNome') || 'Laboratório';
-document.getElementById('dataAtual').innerText = new Date().toLocaleDateString('pt-PT');
-function mostrarSecao(secao) {
-  document.getElementById('secaoDashboard').style.display = secao === 'dashboard' ? 'block' : 'none';
-  document.getElementById('secaoCertificados').style.display = secao === 'certificados' ? 'block' : 'none';
-  if (secao === 'dashboard') carregarStats();
-  if (secao === 'certificados') carregarCertificados();
-}
-async function carregarStats() {
-  try {
-    const r = await fetch('/api/laboratorio/stats', { headers: { 'Authorization': 'Bearer ' + token } });
-    const data = await r.json();
-    document.getElementById('totalCert').innerText = data.total;
-    let html = '';
-    data.porTipo.forEach(item => { html += '<div><span class="badge">' + (item._id || 'Sem tipo') + '</span> ' + item.count + '</div>'; });
-    document.getElementById('statsTipo').innerHTML = html || '<div>Nenhum dado</div>';
-  } catch (e) { console.error(e); }
-}
-async function carregarCertificados() {
-  const tipo = document.getElementById('filtroTipo').value;
-  const busca = document.getElementById('buscaPaciente').value;
-  let url = '/api/laboratorio/certificados';
-  const params = new URLSearchParams();
-  if (tipo) params.append('tipo', tipo);
-  if (busca) params.append('paciente', busca);
-  if (params.toString()) url += '?' + params.toString();
-  try {
-    const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
-    const certs = await r.json();
-    let html = '';
-    if (certs.length === 0) html = '<tr><td colspan="5" style="text-align:center;">Nenhum certificado</td></tr>';
-    else {
-      certs.forEach(c => {
-        html += '<tr><td>' + c.certificateNumber + '</td><td>' + c.patientName + '</td><td>' + (c.diseaseCategory || '—') + '</td><td>' + new Date(c.createdAt).toLocaleDateString('pt-PT') + '</td><td><button class="btn" onclick="baixarPDF(\\'' + c._id + '\\')">📄 PDF</button></td></tr>';
-      });
+  
+  <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
+  
+  <script>
+    function showNotify(msg, type) {
+      const notify = document.getElementById('genlove-notify');
+      const msgSpan = document.getElementById('notify-msg');
+      msgSpan.innerText = msg;
+      notify.style.backgroundColor = type === 'success' ? '#4CAF50' : '#dc3545';
+      notify.classList.add('show');
+      setTimeout(() => notify.classList.remove('show'), 3000);
     }
-    document.getElementById('tabelaCertificados').innerHTML = html;
-  } catch (e) { document.getElementById('tabelaCertificados').innerHTML = '<tr><td colspan="5" style="text-align:center;">Erro ao carregar</td></tr>'; }
+    
+    document.getElementById('signupForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+      
+      if (!email || !password) {
+        showNotify("Preencha todos os campos", "error");
+        return;
+      }
+      
+      if (password !== confirmPassword) {
+        showNotify("As senhas não correspondem.", "error");
+        return;
+      }
+      
+      if (password.length < 6) {
+        showNotify("A senha deve ter no mínimo 6 caracteres", "error");
+        return;
+      }
+      
+      // Vérification format email
+      const emailRegex = /^[^\\s@]+@([^\\s@]+\\.)+[^\\s@]+$/;
+      if (!emailRegex.test(email)) {
+        showNotify("Formato de email inválido ", "error");
+        return;
+      }
+      
+      showNotify("Verificando...", "info");
+      
+      try {
+        // Verificar se o email já existe 
+        const checkRes = await fetch('/api/check-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const checkData = await checkRes.json();
+        
+        if (checkData.exists) {
+          showNotify("Cet email est déjà utilisé", "error");
+          return;
+        }
+        
+        // Stocker les données en session temporaire
+        const tempRes = await fetch('/api/temp-signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        
+        const tempData = await tempRes.json();
+        
+        if (tempData.success) {
+          showNotify("Email validé, continuons !", "success");
+          setTimeout(() => {
+            window.location.href = '/charte-engagement?tempId=' + tempData.tempId;
+          }, 1000);
+        } else {
+          showNotify(tempData.error || "Erreur", "error");
+        }
+      } catch(e) {
+        showNotify("Erro de conexão", "error");
+        console.error(e);
+      }
+    });
+
+function togglePassword(fieldId) {
+  const field = document.getElementById(fieldId);
+  if (field.type === "password") {
+    field.type = "text";
+  } else {
+    field.type = "password";
+  }
 }
-async function baixarPDF(id) {
-  try {
-    const r = await fetch('/api/laboratorio/certificados/' + id + '/pdf', { headers: { 'Authorization': 'Bearer ' + token } });
-    if (!r.ok) throw new Error();
-    const blob = await r.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'certificado.pdf';
-    a.click();
-  } catch (e) { alert('Erro ao gerar PDF'); }
-}
-function logout() { localStorage.clear(); window.location.href = '/'; }
-carregarStats();
-</script>
-</body></html>
-  `);
+  </script>
+</body>
+</html>`);
+});
+// ============================================
+// CHARTE D'ENGAGEMENT
+// ============================================
+app.get('/charte-engagement', (req, res) => {
+  const t = req.t;
+  const tempId = req.query.tempId;
+  
+  if (tempId) {
+    req.session.tempSignupId = tempId;
+  }    res.send(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - ${t('charterTitle')}</title>
+    ${styles}
+    ${notifyScript}
+</head>
+<body>
+    <div class="app-shell">
+        <div class="page-white">
+            <h2>${t('charterTitle')}</h2>
+            <p style="font-size:1.2rem; margin-bottom:25px;">${t('charterSubtitle')}</p>
+            <div class="charte-box" id="charteBox" onscroll="checkScroll(this)">
+                <div class="charte-section">
+                    <div class="charte-title">${t('oath1')}</div>
+                    <div class="charte-subtitle">${t('oath1Sub')}</div>
+                    <p>${t('oath1Text')}</p>
+                </div>
+                <div class="charte-section">
+                    <div class="charte-title">${t('oath2')}</div>
+                    <div class="charte-subtitle">${t('oath2Sub')}</div>
+                    <p>${t('oath2Text')}</p>
+                </div>
+                <div class="charte-section">
+                    <div class="charte-title">${t('oath3')}</div>
+                    <div class="charte-subtitle">${t('oath3Sub')}</div>
+                    <p>${t('oath3Text')}</p>
+                </div>
+                <div class="charte-section">
+                    <div class="charte-title">${t('oath4')}</div>
+                    <div class="charte-subtitle">${t('oath4Sub')}</div>
+                    <p>${t('oath4Text')}</p>
+                </div>
+                <div class="charte-section">
+                    <div class="charte-title">${t('oath5')}</div>
+                    <div class="charte-subtitle">${t('oath5Sub')}</div>
+                    <p>${t('oath5Text')}</p>
+                </div>
+            </div>
+            <div class="scroll-indicator" id="scrollIndicator">⬇️ ${t('scrollDown')} ⬇️</div>
+            <button id="agreeBtn" class="btn-pink" onclick="acceptCharte()" disabled style="opacity: 0.5; cursor: not-allowed;">${t('accept')}</button>
+            <a href="/" class="back-link">← ${t('backHome')}</a>
+        </div>
+    </div>
+    
+    <script>
+        function checkScroll(el) {
+            if (el.scrollHeight - el.scrollTop <= el.clientHeight + 5) {
+                document.getElementById('agreeBtn').disabled = false;
+                document.getElementById('agreeBtn').style.opacity = '1';
+                document.getElementById('agreeBtn').style.cursor = 'pointer';
+                document.getElementById('scrollIndicator').style.opacity = '0.3';
+            } else {
+                document.getElementById('agreeBtn').disabled = true;
+                document.getElementById('agreeBtn').style.opacity = '0.5';
+                document.getElementById('agreeBtn').style.cursor = 'not-allowed';
+                document.getElementById('scrollIndicator').style.opacity = '1';
+            }
+        }
+        
+        window.onload = function() {
+            const charteBox = document.getElementById('charteBox');
+            if (charteBox.scrollTop === 0) {
+                document.getElementById('agreeBtn').disabled = true;
+                document.getElementById('agreeBtn').style.opacity = '0.5';
+            }
+        };
+        
+        function acceptCharte() {
+            if (!document.getElementById('agreeBtn').disabled) window.location.href = '/signup-choice';
+        }
+    </script>
+</body>
+</html>`);
 });
 
-app.get('/novo-certificado', (req, res) => {
+// ============================================
+// PAGE DE CHOIX D'INSCRIPTION
+// ============================================
+app.get('/signup-choice', (req, res) => {
+    const t = req.t;
+    res.send(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - ${t('signupTitle')}</title>
+    ${styles}
+    ${notifyScript}
+</head>
+<body>
+    <div class="app-shell">
+        <div class="page-white choice-screen">
+            <h2>${t('signupTitle')}</h2>
+            <p style="font-size: 1.2rem; margin-bottom: 30px;">${t('signupSub')}</p>
+            
+            <div class="options">
+                <div class="option-card" onclick="window.location.href='/signup-qr'">
+                    <div class="icon">📱</div>
+                    <h3>${t('withCertificate')}</h3>
+                    <p>${t('scanAutomatic')}</p>
+                </div>
+                
+                <div class="option-card manual" onclick="window.location.href='/signup-manual'">
+                    <div class="icon">📝</div>
+                    <h3>${t('manualEntry')}</h3>
+                    <p>${t('freeEntry')}</p>
+                </div>
+            </div>
+            
+            <a href="/charte-engagement" class="back-link">← ${t('backCharter')}</a>
+        </div>
+    </div>
+</body>
+</html>`);
+});
+
+// ============================================
+// INSCRIPTION PAR CODE QR (VERSION FINALE)
+// ============================================
+app.get('/signup-qr', (req, res) => {
+  // Gestion du changement de langue via paramètre
+  if (req.query.lang && ['fr','en','pt','es','ar','zh'].includes(req.query.lang)) {
+    req.session.lang = req.query.lang;
+    return res.redirect('/signup-qr');
+  }
+
+  const t = req.t;
+  
   res.send(`
 <!DOCTYPE html>
-<html lang="pt">
+<html lang="${req.lang}">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Novo Certificado</title>
-  <style>
-    * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',sans-serif; }
-    body { background:#f0f4f0; display:flex; justify-content:center; align-items:flex-start; min-height:100vh; padding:2rem; }
-    .container { max-width:950px; width:100%; background:white; border-radius:24px; padding:2rem; }
-    .header { background:#006633; color:white; padding:1.5rem; border-radius:12px 12px 0 0; }
-    .header h1 { font-size:2rem; }
-    .header span { background:#ffcc00; color:#006633; padding:4px 12px; border-radius:40px; }
-    .form-card { padding:2rem; }
-    .section-title { font-size:1.4rem; font-weight:600; color:#006633; border-bottom:2px solid #cce8d5; margin:2rem 0 1rem; }
-    .grid-2 { display:grid; grid-template-columns:repeat(2,1fr); gap:1.5rem; }
-    .campo { display:flex; flex-direction:column; }
-    .full-width { grid-column:span 2; }
-    label { font-weight:600; color:#2d4a3b; }
-    input, select { padding:0.8rem; border:1px solid #ddd; border-radius:8px; }
-    .btn-emitir { background:#006633; color:white; border:none; padding:1rem; border-radius:50px; width:100%; cursor:pointer; font-size:1.2rem; }
-    #camposEspecificosContainer { display:contents; }
-    .info-message { display:none; }
-    #modalPreview { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); display:none; justify-content:center; align-items:center; }
-    .modal-content { background:white; padding:2rem; border-radius:24px; max-width:600px; }
-    .data-container { display:flex; gap:5px; }
-    .data-container select, .data-container input { flex:1; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+<script src="https://unpkg.com/html5-qrcode@2.3.8"></script>
+<style>
+  /* Styles complets (inchangés) */
+  * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI', sans-serif; }
+  body { background:#f9fafb; display:flex; justify-content:center; align-items:flex-start; min-height:100vh; padding:20px; }
+  .container { max-width:400px; width:100%; background:white; border-radius:30px; padding:25px; box-shadow:0 10px 30px rgba(0,0,0,0.1); }
+  h2 { color:#1a2a44; font-size:1.8rem; margin-bottom:20px; text-align:center; }
+  .language-selector { text-align:center; margin-bottom:20px; }
+  .language-selector select { padding:10px 20px; border-radius:30px; border:2px solid #ff416c; background:white; font-size:1rem; color:#1a2a44; font-weight:600; cursor:pointer; }
+  #reader { width:100%; max-width:300px; height:auto; margin:0 auto 20px; border-radius:15px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.2); background:#f0f0f0; position:relative; }
+  #qr-success { position:absolute; top:10px; left:50%; transform:translateX(-50%); background:#10b981; color:white; padding:6px 12px; border-radius:12px; font-size:14px; display:none; z-index:10; }
+  .section-badge { font-size:12px; color:#10b981; font-weight:bold; margin:10px 0 5px; text-transform:uppercase; }
+  .partition { height:2px; background:linear-gradient(90deg,transparent,#ff416c,transparent); margin:25px 0 20px; opacity:0.3; }
+  input, select { width:100%; padding:14px; margin:8px 0; border:2px solid #e2e8f0; border-radius:15px; font-size:1rem; background:#f8f9fa; transition:0.3s; }
+  input:focus, select:focus { border-color:#ff416c; outline:none; box-shadow:0 0 0 4px rgba(255,65,108,0.2); }
+  input[readonly] { background:#f3f4f6; border-color:#10b981; }
+  .photo-box { width:120px; height:120px; margin:15px auto; border:2px dashed #ff416c; border-radius:15px; background:#f8f9fa; display:flex; align-items:center; justify-content:center; color:#999; cursor:pointer; background-size:cover; background-position:center; }
+  .photo-box.has-image { border:2px solid #10b981; color:transparent; }
+  .date-picker { display:flex; gap:5px; margin:10px 0; }
+  .date-picker select { flex:1; padding:12px; }
+  .date-error { color:#dc2626; font-size:12px; display:none; margin-top:-5px; }
+  .life-project { background:#f8f9fa; padding:15px; border-radius:15px; margin:15px 0; border:1px solid #e2e8f0; }
+  .life-project-title { font-weight:600; color:#1a2a44; margin-bottom:10px; }
+  .life-project-options { display:flex; gap:20px; }
+  .life-project-options label { display:flex; align-items:center; gap:8px; cursor:pointer; }
+  .checkbox-container { display:flex; align-items:flex-start; gap:10px; margin:20px 0; font-size:14px; color:#4b5563; }
+  button { width:100%; padding:16px; background:#ff416c; color:white; border:none; border-radius:30px; font-size:1.2rem; font-weight:bold; cursor:pointer; transition:0.3s; margin-top:10px; }
+  button:hover { background:#e63956; transform:translateY(-2px); box-shadow:0 10px 20px rgba(255,65,108,0.3); }
+  button:disabled { background:#f9a8d4; cursor:not-allowed; }
+  .back-link { display:block; text-align:center; margin-top:15px; color:#666; text-decoration:none; }
+</style>
 </head>
 <body>
 <div class="container">
-  <div class="header"><h1>➕ Novo Certificado <span>LAB</span></h1></div>
-  <div class="form-card">
-    <div id="loadingMessage" class="info-message">A validar...</div>
-    <form id="certForm" style="display:none;">
-      <!-- Tipo de certificado (sempre no topo) -->
-      <div>
-        <label for="tipo">TIPO DE CERTIFICADO *</label>
-        <select id="tipo" required>
-          <option value="" disabled selected>— Selecione —</option>
-          <option value="1">1 - GENÓTIPO</option><option value="2">2 - BOA SAÚDE</option><option value="3">3 - INCAPACIDADE</option>
-          <option value="4">4 - APTIDÃO</option><option value="5">5 - SAÚDE MATERNA</option><option value="6">6 - PRÉ-NATAL</option>
-          <option value="7">7 - EPIDEMIOLÓGICO</option><option value="8">8 - CSD</option>
-        </select>
-      </div>
-
-      <!-- Dados do paciente -->
-      <div class="section-title">👤 Dados do paciente</div>
-      <div class="grid-2">
-        <div class="full-width campo"><label>Nome completo *</label><input type="text" id="nomeCompleto" required></div>
-        <div class="campo"><label>BI</label><input type="text" id="bi"></div>
-        <div class="campo"><label>Género</label><select id="genero"><option value="M">Masculino</option><option value="F" selected>Feminino</option></select></div>
-        <div class="full-width campo"><label>Data de Nascimento *</label>
-          <div class="data-container">
-            <select id="dia" required>
-              <option value="">Dia</option>
-            </select>
-            <select id="mes" required>
-              <option value="">Mês</option>
-              <option value="1">Janeiro</option>
-              <option value="2">Fevereiro</option>
-              <option value="3">Março</option>
-              <option value="4">Abril</option>
-              <option value="5">Maio</option>
-              <option value="6">Junho</option>
-              <option value="7">Julho</option>
-              <option value="8">Agosto</option>
-              <option value="9">Setembro</option>
-              <option value="10">Outubro</option>
-              <option value="11">Novembro</option>
-              <option value="12">Dezembro</option>
-            </select>
-            <input type="number" id="ano" placeholder="Ano" min="1900" max="2100" required>
-          </div>
-        </div>
-        <div class="full-width campo"><label>Telefone</label><input type="tel" id="telefone"></div>
-      </div>
-
-      <!-- Parâmetros específicos (campos dinâmicos) – agora sem quadro -->
-      <div class="section-title">📋 Parâmetros específicos</div>
-      <div id="camposEspecificosContainer" class="grid-2"></div>
-
-      <!-- Responsável pela emissão (agora no final) -->
-      <div class="section-title">🔬 Responsável pela emissão</div>
-      <div class="grid-2">
-        <div class="full-width campo"><label>Nome do laborantin / técnico *</label><input type="text" id="laborantinNome" required></div>
-        <div class="campo"><label>Registro profissional</label><input type="text" id="laborantinRegistro"></div>
-      </div>
-
-      <button type="submit" class="btn-emitir" id="btnEmitir">📥 Emitir certificado</button>
-    </form>
-    <div id="resultadoArea" class="hidden" style="display:none;"></div>
+  <!-- Sélecteur de langue -->
+  <div class="language-selector">
+    <select onchange="window.location.href='/signup-qr?lang='+this.value">
+      <option value="fr" ${req.lang === 'fr' ? 'selected' : ''}>🇫🇷 ${t('french')}</option>
+      <option value="en" ${req.lang === 'en' ? 'selected' : ''}>🇬🇧 ${t('english')}</option>
+      <option value="pt" ${req.lang === 'pt' ? 'selected' : ''}>🇵🇹 ${t('portuguese')}</option>
+      <option value="es" ${req.lang === 'es' ? 'selected' : ''}>🇪🇸 ${t('spanish')}</option>
+      <option value="ar" ${req.lang === 'ar' ? 'selected' : ''}>🇸🇦 ${t('arabic')}</option>
+      <option value="zh" ${req.lang === 'zh' ? 'selected' : ''}>🇨🇳 ${t('chinese')}</option>
+    </select>
   </div>
+
+  <!-- Scanner QR -->
+<div id="reader" style="position:relative;">
+  <div id="qr-success">✅ QR lido!</div>
 </div>
 
-<div id="modalPreview">
-  <div class="modal-content">
-    <h2 style="color:#006633;">🔍 Confirmar Dados</h2>
-    <div id="previewContent"></div>
-    <div style="display:flex; gap:1rem; margin-top:2rem;">
-      <button type="button" onclick="fecharPreview()" style="flex:1; background:#f0f0f0; padding:1rem; border-radius:50px;">Modificar</button>
-      <button type="button" id="btnConfirmarFinal" style="flex:1; background:#006633; color:white; padding:1rem; border-radius:50px;">Confirmar</button>
+<!-- Dados automáticos -->
+<div class="section-badge">✓ ${t('automaticData')} (${t('certificate')})</div>
+<input type="text" id="firstName" placeholder="${t('firstName')}" readonly>
+<input type="text" id="gender" placeholder="${t('gender')}" readonly>
+<input type="text" id="genotype" placeholder="${t('genotype')}" readonly>
+<input type="text" id="bloodGroup" placeholder="${t('bloodGroup')}" readonly>
+
+<!-- Campos ocultos -->
+<input type="hidden" id="qrVerified" value="false">
+<input type="hidden" id="verificationBadge" value="self">
+
+<div class="partition"></div>
+  <!-- Dados manuais -->
+  <h2>${t('sectionTitle')}</h2>
+  <p style="color:#6b7280; margin-bottom:20px;">${t('subText')}</p>
+  
+  <div class="photo-box" id="photoBox" onclick="document.getElementById('photoInput').click()">
+    <span id="photoPlaceholder">${t('photoPlaceholder')}</span>
+  </div>
+  <input type="file" id="photoInput" accept="image/*" style="display:none">
+
+  <input type="text" id="region" placeholder="${t('region')}" required>
+
+  <div class="date-picker">
+    <select id="day" required><option value="">${t('day')}</option>${Array.from({length:31},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}</select>
+    <select id="month" required><option value="">${t('month')}</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}</select>
+    <select id="year" required><option value="">${t('year')}</option>${Array.from({length:101},(_,i)=>{let y=new Date().getFullYear()-18-i; return `<option value="${y}">${y}</option>`}).join('')}</select>
+  </div>
+  <div id="dateError" class="date-error">${t('invalidDate') || 'Data inválida'}</div>
+
+  <div class="life-project">
+    <div class="life-project-title">${t('desireChild')}</div>
+    <div class="life-project-options">
+      <label><input type="radio" name="desireChild" value="Oui" required> ${t('yes')}</label>
+      <label><input type="radio" name="desireChild" value="Non" required> ${t('no')}</label>
     </div>
   </div>
+
+  <div class="checkbox-container">
+    <input type="checkbox" id="honorCheckbox" required>
+    <label>${t('honorText')}</label>
+  </div>
+
+  <button id="submitBtn" disabled>${t('createProfile')}</button>
+  <a href="/signup-choice" class="back-link">← ${t('backCharter')}</a>
 </div>
 
 <script>
-// Lista completa de exames por tipo (8 tipos)
-const examesPorTipo = {
-  1: ['grupoSanguineo','fatorRh','genotipo','hemoglobina','hematocrito','contagem_reticulocitos','eletroforese'],
-  2: ['peso','altura','pressaoArterial','frequenciaCardiaca','frequenciaRespiratoria','temperatura','saturacaoOxigenio','glicemia','colesterolTotal','triglicerideos'],
-  3: ['tipoIncapacidade','causa','grau','dataInicio','partesAfetadas','limitacoes','necessitaAcompanhante'],
-  4: ['tipoAptidao','modalidade','resultado','restricoes','validade'],
-  5: ['gestacoes','partos','abortos','nascidosVivos','dum','dpp','idadeGestacional','consultasCPN','hemograma','gotaEspessa','hiv','vdrl','hbs','glicemia','creatinina','ureia','tgo','grupoSanguineo','fatorRh','exsudadoVaginal','pesoAtual','alturaUterina','batimentosCardiacosFeto','movimentosFetais','edema','proteinuria'],
-  6: ['grupoSanguineo','fatorRh','hemograma','gotaEspessa','hiv','vdrl','hbs','vidal','glicemia','creatinina','ureia','tgo','testeGravidez','exsudadoVaginal','vs','falsiformacao'],
-  7: ['doenca','outraDoenca','dataInicioSintomas','dataDiagnostico','metodoDiagnostico','tipoExame','resultado','tratamento','internamento','dataInternamento','contatos'],
-  8: ['destino','motivoViagem','dataPartida','dataRetorno','vacinaFebreAmarela','dataVacinaFebreAmarela','loteVacinaFebreAmarela','vacinaCovid19','dosesCovid','testeCovid','tipoTesteCovid','dataTesteCovid','resultadoTesteCovid','outrasVacinas','medicamentos','condicoesEspeciais','recomendacoes']
-};
-const opcoesSelect = {
-  'grupoSanguineo': ['A','B','AB','O'],
-  'fatorRh': ['Positivo (+)','Negativo (-)'],
-  'genotipo': ['AA','AS','SS','AC','SC'],
-  'tipoIncapacidade': ['Física','Mental','Sensorial','Múltipla'],
-  'grau': ['Leve','Moderado','Grave'],
-  'tipoAptidao': ['Apto','Inapto','Apto com restrições'],
-  'modalidade': ['Desportiva','Laboral','Escolar'],
-  'resultado': ['Positivo','Negativo','Inconclusivo'],
-  'metodoDiagnostico': ['Clínico','Laboratorial','Imagem'],
-  'tipoExame': ['PCR','Antigénio','Sorologia'],
-  'vacinaFebreAmarela': ['Sim','Não'],
-  'vacinaCovid19': ['Sim','Não'],
-  'testeCovid': ['Sim','Não']
-};
+const html5QrCode = new Html5Qrcode("reader");
+let hasScanned = false;
+let scanTimeout = null;
+let selectedPhotoFile = null;
 
-function formatarNomeCampo(chave) { return chave.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()); }
-
-// Função para obter número de dias em um mês/ano
-function getDiasNoMes(mes, ano) {
-  return new Date(ano, mes, 0).getDate();
-}
-
-// Atualiza os dias conforme mês e ano
-function atualizarDias() {
-  const mes = parseInt(document.getElementById('mes').value);
-  const ano = parseInt(document.getElementById('ano').value);
-  const selectDia = document.getElementById('dia');
-  const diaAtual = selectDia.value;
-  selectDia.innerHTML = '<option value="">Dia</option>';
-  if (mes && ano) {
-    const dias = getDiasNoMes(mes, ano);
-    for (let i = 1; i <= dias; i++) {
-      const opt = document.createElement('option');
-      opt.value = i;
-      opt.textContent = i.toString().padStart(2, '0');
-      selectDia.appendChild(opt);
-    }
-    if (diaAtual && parseInt(diaAtual) <= dias) {
-      selectDia.value = diaAtual;
-    }
-  }
-}
-
-// Token e inicialização
-const token = localStorage.getItem('token');
-if (!token) {
-  document.getElementById('loadingMessage').innerText = '❌ Sessão expirada';
-  setTimeout(() => window.location.href = '/', 2000);
-} else {
-  document.getElementById('loadingMessage').style.display = 'none';
-  document.getElementById('certForm').style.display = 'block';
-}
-
-// Eventos para data
-document.getElementById('mes').addEventListener('change', atualizarDias);
-document.getElementById('ano').addEventListener('input', atualizarDias);
-// Pré-definir ano atual e mês atual
-const hoje = new Date();
-document.getElementById('ano').value = hoje.getFullYear();
-document.getElementById('mes').value = hoje.getMonth() + 1;
-atualizarDias();
-
-// Campos dinâmicos conforme tipo selecionado
-document.getElementById('tipo').addEventListener('change', function() {
-  const tipo = parseInt(this.value);
-  const lista = examesPorTipo[tipo] || [];
-  let html = '';
-  lista.forEach(campo => {
-    const label = formatarNomeCampo(campo);
-    if (opcoesSelect[campo]) {
-      html += '<div class="campo"><label>' + label + '</label><select name="' + campo + '" id="campo_' + campo + '"><option value="" selected disabled>Selec...</option>';
-      opcoesSelect[campo].forEach(opt => { html += '<option value="' + opt + '">' + opt + '</option>'; });
-      html += '</select></div>';
-    } else {
-      let tipoInput = 'text';
-      if (campo.includes('data') || ['dum','dpp','dataInicio','dataDiagnostico','dataInternamento','dataPartida','dataRetorno','dataVacinaFebreAmarela','dataTesteCovid'].includes(campo)) tipoInput = 'date';
-      if (['peso','altura','gestacoes','partos','abortos','nascidosVivos','dosesCovid','validade','idadeGestacional','consultasCPN','contagem_reticulocitos','hemoglobina','hematocrito','glicemia','colesterolTotal','triglicerideos','frequenciaCardiaca','frequenciaRespiratoria','temperatura','saturacaoOxigenio'].includes(campo)) tipoInput = 'number';
-      html += '<div class="campo"><label>' + label + '</label><input type="' + tipoInput + '" name="' + campo + '" id="campo_' + campo + '" placeholder="' + label + '" step="any"></div>';
-    }
-  });
-  document.getElementById('camposEspecificosContainer').innerHTML = html;
-});
-
-// Pré-visualização
-document.getElementById('certForm').addEventListener('submit', function(e) {
-  e.preventDefault();
-  let html = '<div><strong>Paciente:</strong> ' + document.getElementById('nomeCompleto').value + '</div><div style="border-top:1px solid #eee; margin-top:1rem;">';
-  document.querySelectorAll('#camposEspecificosContainer input, #camposEspecificosContainer select').forEach(i => {
-    if (i.value) html += '<div><span>' + formatarNomeCampo(i.name) + '</span> <b>' + i.value + '</b></div>';
-  });
-  html += '</div>';
-  document.getElementById('previewContent').innerHTML = html;
-  document.getElementById('modalPreview').style.display = 'flex';
-});
-
-window.fecharPreview = () => { document.getElementById('modalPreview').style.display = 'none'; };
-
-// Confirmação e envio
-document.getElementById('btnConfirmarFinal').addEventListener('click', async function() {
-  fecharPreview();
-  document.getElementById('btnEmitir').disabled = true;
-  document.getElementById('btnEmitir').textContent = '⏳ Emitindo...';
-
-  // Construir data de nascimento a partir dos campos
-  const dia = document.getElementById('dia').value;
-  const mes = document.getElementById('mes').value;
-  const ano = document.getElementById('ano').value;
-  if (!dia || !mes || !ano) {
-    alert('Preencha a data de nascimento completa.');
-    document.getElementById('btnEmitir').disabled = false;
-    document.getElementById('btnEmitir').textContent = '📥 Emitir certificado';
-    return;
-  }
-  const dataNascimento = ano + '-' + mes.padStart(2,'0') + '-' + dia.padStart(2,'0');
-
-  const tipo = parseInt(document.getElementById('tipo').value);
-  const payload = {
-    tipo: tipo,
-    paciente: {
-      nomeCompleto: document.getElementById('nomeCompleto').value,
-      bi: document.getElementById('bi').value,
-      dataNascimento: dataNascimento,
-      genero: document.getElementById('genero').value,
-      telefone: document.getElementById('telefone').value
-    },
-    laborantin: {
-      nome: document.getElementById('laborantinNome').value,
-      registro: document.getElementById('laborantinRegistro').value
-    },
-    dados: {}
-  };
-  (examesPorTipo[tipo] || []).forEach(campo => {
-    const el = document.getElementById('campo_' + campo);
-    if (el && el.value.trim() !== '') {
-      if (['peso','altura','gestacoes','partos','abortos','nascidosVivos','dosesCovid','idadeGestacional','consultasCPN','hemoglobina','hematocrito','glicemia','colesterolTotal','triglicerideos','frequenciaCardiaca','frequenciaRespiratoria','temperatura','saturacaoOxigenio'].includes(campo)) {
-        payload.dados[campo] = parseFloat(el.value.replace(',','.'));
-      } else {
-        payload.dados[campo] = el.value.trim();
-      }
-    }
-  });
-
+async function startRearCamera() {
   try {
-    const r = await fetch('/api/laboratorio/certificados', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-      body: JSON.stringify(payload)
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.erro || 'Erro');
-    document.getElementById('certForm').style.display = 'none';
-    document.getElementById('resultadoArea').innerHTML = '<div style="background:white; padding:2rem; text-align:center; border-radius:12px;"><div style="color:#006633; font-size:2rem;">✅ Sucesso</div><div style="background:#ffcc00; padding:0.5rem; border-radius:60px; margin:1rem 0;">' + data.numero + '</div><p><strong>IMC:</strong> ' + (data.imc || '—') + ' | ' + (data.classificacaoIMC || '—') + '</p><p><strong>Idade:</strong> ' + (data.idade || '?') + ' anos</p><button class="btn-emitir" onclick="location.reload()">➕ Novo</button></div>';
-    document.getElementById('resultadoArea').style.display = 'block';
-  } catch (error) {
-    alert('Erro: ' + error.message);
-  } finally {
-    document.getElementById('btnEmitir').disabled = false;
-    document.getElementById('btnEmitir').textContent = '📥 Emitir certificado';
+    const devices = await Html5Qrcode.getCameras();
+    if (!devices || devices.length === 0) return;
+    let rearCamera = devices.find(d => 
+      d.label.toLowerCase().includes("back") || 
+      d.label.toLowerCase().includes("rear") ||
+      d.label.toLowerCase().includes("environment") ||
+      d.label.toLowerCase().includes("arrière")
+    ) || devices[0];
+    
+    const config = { fps: 10, qrbox: 250, aspectRatio: 1.0 };
+    await html5QrCode.start(rearCamera.id, config, onScanSuccess, onScanError);
+  } catch(e) { console.error(e); }
+}
+
+function onScanSuccess(decodedText){
+  if (hasScanned) return;
+  clearTimeout(scanTimeout);
+  hasScanned = true;
+  html5QrCode.stop().catch(console.log);
+
+  fetch('/api/validate-genotype-qr', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ qrData: decodedText })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      // ✅ Certificat agréé - remplissage et caméra s'éteint
+      document.getElementById('firstName').value = data.userData.firstName;
+      document.getElementById('gender').value = data.userData.gender;
+      document.getElementById('genotype').value = data.userData.genotype;
+      document.getElementById('bloodGroup').value = data.userData.bloodGroup;
+      document.getElementById('qrVerified').value = 'true';
+      document.getElementById('verificationBadge').value = 'lab';
+
+      document.getElementById('firstName').readOnly = true;
+      document.getElementById('gender').disabled = true;
+      document.getElementById('genotype').disabled = true;
+      document.getElementById('bloodGroup').disabled = true;
+
+      const successDiv = document.getElementById('qr-success');
+      successDiv.style.display = 'block';
+      successDiv.innerHTML = '✅ Certificado válido! Dados preenchidos.';
+      successDiv.style.backgroundColor = '#10b981';
+
+      // Caméra reste éteinte, pas de redémarrage
+      
+    } else {
+      // ❌ Certificat non agréé - popup et réactivation caméra
+      alert('❌ Certificado não reconhecido pelo Ministério da Saúde. Assinatura inválida.');
+      hasScanned = false;
+      startRearCamera();
+    }
+  })
+  .catch(err => {
+    // En cas d'erreur réseau, on ne fait rien (caméra reste éteinte)
+    console.error(err);
+  });
+}
+function onScanError(err) { if (!err.includes("NotFoundException")) console.log(err); }
+
+// Validação do formulário
+function checkFormValidity() {
+  const fields = [
+    'firstName', 'gender', 'genotype', 'bloodGroup', 'region', 
+    'day', 'month', 'year'
+  ];
+  let allFilled = fields.every(id => document.getElementById(id).value.trim() !== '');
+  let desireChecked = document.querySelector('input[name="desireChild"]:checked') !== null;
+  let honorChecked = document.getElementById('honorCheckbox').checked;
+  document.getElementById('submitBtn').disabled = !(allFilled && desireChecked && honorChecked);
+}
+['firstName','gender','genotype','bloodGroup','region','day','month','year'].forEach(id => {
+  document.getElementById(id).addEventListener('change', checkFormValidity);
+});
+document.querySelectorAll('input[name="desireChild"]').forEach(r => r.addEventListener('change', checkFormValidity));
+document.getElementById('honorCheckbox').addEventListener('change', checkFormValidity);
+
+// Validação de data (máximo de dias)
+function getMaxDays(month, year) {
+  if (!month || !year) return 31;
+  let m = parseInt(month), y = parseInt(year);
+  if ([4,6,9,11].includes(m)) return 30;
+  if (m === 2) return ((y % 4 === 0 && y % 100 !== 0) || y % 400 === 0) ? 29 : 28;
+  return 31;
+}
+function validateDate() {
+  let day = document.getElementById('day').value;
+  let month = document.getElementById('month').value;
+  let year = document.getElementById('year').value;
+  if (day && month && year) {
+    let max = getMaxDays(month, year);
+    if (parseInt(day) > max) {
+      document.getElementById('day').value = max;
+      document.getElementById('dateError').style.display = 'block';
+      setTimeout(() => document.getElementById('dateError').style.display = 'none', 3000);
+    }
   }
+}
+document.getElementById('day').addEventListener('change', validateDate);
+document.getElementById('month').addEventListener('change', validateDate);
+document.getElementById('year').addEventListener('change', validateDate);
+
+// Photo
+document.getElementById('photoBox').addEventListener('click', () => {
+  let input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = e => {
+    if (e.target.files[0]) {
+      selectedPhotoFile = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = ev => {
+        document.getElementById('photoBox').style.backgroundImage = 'url(' + ev.target.result + ')';
+        document.getElementById('photoBox').classList.add('has-image');
+        document.getElementById('photoPlaceholder').style.display = 'none';
+      };
+      reader.readAsDataURL(selectedPhotoFile);
+    }
+  };
+  input.click();
+});
+
+// Soumission
+document.getElementById('submitBtn').addEventListener('click', async function() {
+  this.disabled = true;
+  const btn = this;
+  btn.textContent = '⏳ Criando...';
+  
+  try {
+    const firstName = document.getElementById('firstName').value.trim();
+    // On met un point pour le nom (obligatoire)
+    const lastName = '.';
+    
+    const day = document.getElementById('day').value;
+    const month = document.getElementById('month').value;
+    const year = document.getElementById('year').value;
+    const dob = year + '-' + month.padStart(2,'0') + '-' + day.padStart(2,'0');
+    
+    const userData = {
+      firstName,
+      lastName,
+      gender: document.getElementById('gender').value,
+      genotype: document.getElementById('genotype').value,
+      bloodGroup: document.getElementById('bloodGroup').value,
+      region: document.getElementById('region').value,
+      residence: document.getElementById('region').value,
+      dob,
+      desireChild: document.querySelector('input[name="desireChild"]:checked').value,
+      photo: selectedPhotoFile ? await fileToBase64(selectedPhotoFile) : '',
+      language: '${req.lang}',
+      isPublic: true,
+      qrVerified: true,
+      verificationBadge: 'lab'
+    };
+    
+    const res = await fetch('/api/register', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(userData)
+    });
+    const data = await res.json();
+    if (data.success) {
+      window.location.href = '/profile';
+    } else {
+      alert('Erreur: ' + (data.error || 'Inconnue'));
+      btn.textContent = 'Criar meu perfil';
+      btn.disabled = false;
+    }
+  } catch(e) {
+    alert('Erreur de connexion');
+    btn.textContent = 'Criar meu perfil';
+    btn.disabled = false;
+  }
+});
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+  });
+}
+
+startRearCamera();
+window.addEventListener('beforeunload', () => {
+  if (html5QrCode && html5QrCode.isScanning) html5QrCode.stop().catch(()=>{});
+  if (scanTimeout) clearTimeout(scanTimeout);
 });
 </script>
 </body></html>
   `);
 });
-
-// ========== API Routes ==========
-app.post('/api/laboratorio/login', async (req, res) => {
+// ============================================
+// INSCRIPTION MANUELLE
+// ============================================
+app.get('/signup-manual', (req, res) => {
+    const t = req.t;
+    const datePicker = generateDateOptions(req);
+    
+    res.send(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - ${t('signupTitle')}</title>
+    ${styles}
+    ${notifyScript}
+</head>
+<body>
+    <div class="app-shell">
+        <div id="loader">
+            <div class="spinner"></div>
+            <h3>Analyse sécurisée...</h3>
+            <p>Vérification de vos données médicales.</p>
+        </div>
+        <div class="page-white">
+            <h2 style="color:#ff416c;">${t('signupTitle')}</h2>
+            <p style="font-size: 1.2rem; margin-bottom: 20px;">${t('signupSub')}</p>
+            
+            <!-- MESSAGE D'AIDE -->
+            <div class="info-message">
+                <span class="info-icon">📍</span>
+                <p>${t('locationHelp')}</p>
+            </div>
+            
+            <form id="signupForm">
+                <div class="photo-circle" id="photoCircle" onclick="document.getElementById('photoInput').click()">
+                    <span id="photoText">📷 Photo</span>
+                </div>
+                <input type="file" id="photoInput" style="display:none" onchange="previewPhoto(event)" accept="image/*">
+                
+                <div class="input-label">${t('firstName')}</div>
+                <input type="text" id="firstName" class="input-box" placeholder="${t('firstName')}" required>
+                
+                <div class="input-label">${t('lastName')}</div>
+                <input type="text" id="lastName" class="input-box" placeholder="${t('lastName')}" required>
+                
+                <div class="input-label">${t('gender')}</div>
+                <select id="gender" class="input-box" required>
+                    <option value="">${t('gender')}</option>
+                    <option value="Homme">${t('male')}</option>
+                    <option value="Femme">${t('female')}</option>
+                </select>
+                
+                <div class="input-label">${t('dob')}</div>
+                ${datePicker}
+                
+                <div class="input-label">${t('city')}</div>
+                <input type="text" id="residence" class="input-box" placeholder="${t('city')}" required>
+                
+                <div class="input-label">${t('region')}</div>
+                <input type="text" id="region" class="input-box" placeholder="${t('region')}" required>
+                
+                <div class="input-label">${t('genotype')}</div>
+                <select id="genotype" class="input-box" required>
+                    <option value="">${t('genotype')}</option>
+                    <option value="AA">AA</option>
+                    <option value="AS">AS</option>
+                    <option value="SS">SS</option>
+                </select>
+                
+                <div style="display:flex; gap:10px;">
+                    <select id="bloodType" class="input-box" style="flex:2;" required>
+                        <option value="">${t('bloodGroup')}</option>
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                        <option value="AB">AB</option>
+                        <option value="O">O</option>
+                    </select>
+                    <select id="bloodRh" class="input-box" style="flex:1;" required>
+                        <option value="+">+</option>
+                        <option value="-">-</option>
+                    </select>
+                </div>
+                
+                <div class="input-label">${t('desireChild')}</div>
+                <select id="desireChild" class="input-box" required>
+                    <option value="">${t('desireChild')}</option>
+                    <option value="Oui">${t('yes')}</option>
+                    <option value="Non">${t('no')}</option>
+                </select>
+                
+                <input type="hidden" id="qrVerified" value="false">
+                
+                <div class="serment-container">
+                    <input type="checkbox" id="oath" style="width:20px;height:20px;" required>
+                    <label for="oath" class="serment-text">${t('honorText')}</label>
+                </div>
+                
+                <button type="submit" class="btn-pink">${t('createProfile')}</button>
+            </form>
+            
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="/signup-qr" class="back-link">📱 ${t('withCertificate')}</a>
+            </div>
+            
+            <a href="/signup-choice" class="back-link">← ${t('backCharter')}</a>
+        </div>
+    </div>
+    
+    <script>
+        let photoBase64 = "";
+        
+        window.onload = function() {
+            document.getElementById('photoCircle').style.backgroundImage = '';
+            document.getElementById('photoText').style.display = 'block';
+        };
+        
+        function previewPhoto(e) {
+            const reader = new FileReader();
+            reader.onload = function() {
+                photoBase64 = reader.result;
+                document.getElementById('photoCircle').style.backgroundImage = 'url(' + photoBase64 + ')';
+                document.getElementById('photoCircle').style.backgroundSize = 'cover';
+                document.getElementById('photoText').style.display = 'none';
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        }
+        
+        document.getElementById('signupForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  document.getElementById('loader').style.display = 'flex';
+  
+  // ===== RÉCUPÉRER L'EMAIL TEMPORAIRE =====
+  let tempEmail = null;
+  let tempPasswordHash = null;
+  
   try {
-    const { apiKey } = req.body;
-    if (!apiKey) return res.status(400).json({ erro: 'Chave API não fornecida' });
-    const prefix = apiKey.split('-')[0];
-    if (prefix !== 'LAB') return res.status(403).json({ erro: 'Chave inválida para laboratório' });
-
-    const labs = await Establishment.find({ establishmentType: 'laboratorio', keyPrefix: 'LAB-' }).select('+keyHash');
-    let lab = null;
-    for (const est of labs) {
-      if (await bcrypt.compare(apiKey, est.keyHash)) { lab = est; break; }
+    const tempRes = await fetch('/api/get-temp-signup');
+    const tempData = await tempRes.json();
+    
+    if (tempData.email) {
+      tempEmail = tempData.email;
+      tempPasswordHash = tempData.passwordHash;
+      console.log("✅ Email temporaire récupéré:", tempEmail);
+    } else {
+      console.log("⚠️ Aucun email temporaire trouvé");
     }
-    if (!lab) return res.status(401).json({ erro: 'Chave API inválida' });
-    if (lab.status === 'Inativo') return res.status(403).json({ erro: 'Laboratório inativo' });
-
-    const token = jwt.sign({ id: lab._id }, process.env.JWT_SECRET || 'secret-key', { expiresIn: '7d' });
-    res.json({ token, lab: { nome: lab.name } });
-  } catch (error) {
-    console.error('Erro login:', error);
-    res.status(500).json({ erro: 'Erro interno do servidor' });
+  } catch(e) {
+    console.error("Erreur récupération email temporaire:", e);
   }
-});
-
-app.get('/api/laboratorio/stats', authJWT, async (req, res) => {
-  try {
-    const total = await Certificate.countDocuments({ establishmentId: req.lab._id });
-    const porTipo = await Certificate.aggregate([
-      { $match: { establishmentId: req.lab._id } },
-      { $group: { _id: '$diseaseCategory', count: { $sum: 1 } } }
-    ]);
-    res.json({ total, porTipo });
-  } catch (error) {
-    console.error('Erro stats:', error);
-    res.status(500).json({ erro: 'Erro stats' });
+  // ===== FIN RÉCUPÉRATION =====
+  
+  const day = document.querySelector('select[name="day"]').value;
+  const month = document.querySelector('select[name="month"]').value;
+  const year = document.querySelector('select[name="year"]').value;
+  
+  if (!day || !month || !year) {
+    alert('Date de naissance requise');
+    document.getElementById('loader').style.display = 'none';
+    return;
   }
-});
-
-app.get('/api/laboratorio/certificados', authJWT, async (req, res) => {
-  try {
-    const { tipo, paciente } = req.query;
-    const query = { establishmentId: req.lab._id };
-    if (tipo) query.diseaseCategory = `Tipo ${tipo}`;
-    if (paciente) query.patientName = { $regex: paciente, $options: 'i' };
-    const certs = await Certificate.find(query).sort({ createdAt: -1 }).limit(100);
-    res.json(certs);
-  } catch (error) {
-    console.error('Erro listagem:', error);
-    res.status(500).json({ erro: 'Erro ao listar certificados' });
-  }
-});
-
-app.post('/api/laboratorio/certificados', authJWT, async (req, res) => {
-  try {
-    const { tipo, paciente, laborantin, dados } = req.body;
-    if (!tipo || !paciente || !paciente.nomeCompleto || !laborantin || !laborantin.nome) {
-      return res.status(400).json({ erro: 'Campos obrigatórios' });
-    }
-
-    let numero;
-    let certificado;
-    let tentativas = 0;
-    const maxTentativas = 5;
-
-    while (tentativas < maxTentativas) {
-      try {
-        numero = gerarNumeroCertificado(req.lab._id);
-        certificado = new Certificate({
-          establishmentId: req.lab._id,
-          createdBy: laborantin.nome,
-          certificateNumber: numero,
-          patientName: paciente.nomeCompleto,
-          patientGender: paciente.genero,
-          patientId: paciente.bi || null,
-          patientBirthDate: paciente.dataNascimento ? new Date(paciente.dataNascimento) : null,
-          diseaseCategory: `Tipo ${tipo}`,
-          diagnosis: 'Diversos',
-          testResults: dados,
-          idadeCalculada: paciente.dataNascimento ? calcularIdade(paciente.dataNascimento) : null,
-          imcCalculado: (dados && dados.peso && dados.altura) ? calcularIMC(dados.peso, dados.altura).imc : null,
-          classificacaoIMC: (dados && dados.peso && dados.altura) ? calcularIMC(dados.peso, dados.altura).classificacao : null
+  
+  const dob = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
+  
+  const userData = {
+    firstName: document.getElementById('firstName').value,
+    lastName: document.getElementById('lastName').value,
+    gender: document.getElementById('gender').value,
+    dob: dob,
+    residence: document.getElementById('residence').value,
+    region: document.getElementById('region').value,
+    genotype: document.getElementById('genotype').value,
+    bloodGroup: document.getElementById('bloodType').value + document.getElementById('bloodRh').value,
+    desireChild: document.getElementById('desireChild').value,
+    photo: photoBase64 || "",
+    language: 'fr',
+    isPublic: true,
+    qrVerified: false,
+    verificationBadge: 'self',
+    // ===== AJOUTER EMAIL ET MOT DE PASSE =====
+    email: tempEmail,
+    passwordHash: tempPasswordHash
+  };            
+            try {
+                const res = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(userData)
+                });
+                
+                const data = await res.json();
+                
+                setTimeout(() => {
+                    document.getElementById('loader').style.display = 'none';
+                    if (data.success) {
+                        window.location.href = '/profile';
+                    } else {
+                        alert("Erreur lors de l'inscription: " + (data.error || "Inconnue"));
+                    }
+                }, 2000);
+            } catch(error) {
+                document.getElementById('loader').style.display = 'none';
+                alert("Erreur de connexion au serveur");
+            }
         });
-        await certificado.save();
-        break; // Sucesso
-      } catch (err) {
-        if (err.code === 11000) {
-          tentativas++;
-          if (tentativas >= maxTentativas) {
-            throw new Error('Número de certificado duplicado após várias tentativas.');
-          }
-          await new Promise(resolve => setTimeout(resolve, 50));
-        } else {
-          throw err;
-        }
-      }
-    }
-
-    req.lab.totalEmissoes = (req.lab.totalEmissoes || 0) + 1;
-    await req.lab.save();
-
-    res.json({ success: true, numero, idade: certificado.idadeCalculada, imc: certificado.imcCalculado, classificacaoIMC: certificado.classificacaoIMC });
-  } catch (error) {
-    console.error('Erro criação:', error);
-    if (error.message.includes('duplicado')) {
-      return res.status(409).json({ erro: 'Número de certificado duplicado. Por favor, tente novamente.' });
-    }
-    res.status(500).json({ erro: 'Erro interno: ' + error.message });
-  }
+    </script>
+</body>
+</html>`);
 });
 
-app.get('/api/laboratorio/certificados/:id/pdf', authJWT, async (req, res) => {
-  try {
-    const certificate = await Certificate.findById(req.params.id);
-    if (!certificate) return res.status(404).json({ erro: 'Certificado não encontrado' });
-    if (certificate.establishmentId.toString() !== req.lab._id.toString()) return res.status(403).json({ erro: 'Acesso negado' });
-
-    const lab = req.lab;
-    const doc = new PDFDocument({ margin: 50, size: 'A4' });
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=${certificate.certificateNumber}.pdf`);
-    doc.pipe(res);
-
-    // ========== EN-TÊTE (identique) ==========
-    doc.fillColor('#006633');
-    doc.fontSize(20).text('REPÚBLICA DE ANGOLA', 0, 50, { align: 'center' });
-    doc.fontSize(16).text('MINISTÉRIO DA SAÚDE', 0, 80, { align: 'center' });
-    doc.fontSize(24).text('SISTEMA NACIONAL DE SAÚDE', 0, 110, { align: 'center' });
-    doc.strokeColor('#006633').lineWidth(2)
-      .moveTo(doc.page.width / 2 - 250, 150)
-      .lineTo(doc.page.width / 2 + 250, 150)
-      .stroke();
-    let y = 180;
-
-    // ========== ESTABELECIMENTO ==========
-    doc.fillColor('#006633').fontSize(12).text('ESTABELECIMENTO:', 50, y);
-    y += 15;
-    doc.fontSize(14).text(lab.name, 70, y);
-    y += 20;
-    doc.fontSize(10).fillColor('#666').text(`NIF: ${lab.nif} | Província: ${lab.province}`, 70, y);
-    y += 15;
-    doc.text(`Endereço: ${lab.address} | Tel: ${lab.phone1}`, 70, y);
-    y += 30;
-
-    doc.fillColor('#006633').fontSize(12).text(`CERTIFICADO Nº: ${certificate.certificateNumber}`, 50, y);
-    doc.fontSize(10).fillColor('#666').text(`Emissão: ${new Date(certificate.createdAt).toLocaleDateString('pt-PT')}`, 50, y + 15);
-    y += 40;
-
-    // ========== TIPO DE CERTIFICADO ==========
-    const tipos = { 1: 'GENÓTIPO', 2: 'BOA SAÚDE', 3: 'INCAPACIDADE', 4: 'APTIDÃO', 5: 'SAÚDE MATERNA', 6: 'PRÉ-NATAL', 7: 'EPIDEMIOLÓGICO', 8: 'CSD' };
-    const tipoMatch = certificate.diseaseCategory.match(/\d+/);
-    const tipo = tipoMatch ? parseInt(tipoMatch[0]) : 1;
-    doc.fillColor('#006633').fontSize(14).text(tipos[tipo] || 'CERTIFICADO MÉDICO', 50, y);
-    y += 20;
-
-    doc.fillColor('#006633').text('RESPONSÁVEL PELA EMISSÃO:', 50, y);
-    y += 20;
-    doc.fillColor('#000').fontSize(11).text(`Nome: ${certificate.createdBy}`, 70, y);
-    y += 15;
-
-    doc.fillColor('#006633').text('PACIENTE:', 50, y);
-    y += 20;
-    doc.fillColor('#000').fontSize(11).text(`Nome: ${certificate.patientName}`, 70, y);
-    y += 15;
-    if (certificate.patientId) { doc.text(`Documento: ${certificate.patientId}`, 70, y); y += 15; }
-    if (certificate.patientBirthDate) { doc.text(`Nascimento: ${new Date(certificate.patientBirthDate).toLocaleDateString('pt-PT')}`, 70, y); y += 15; }
-    if (certificate.idadeCalculada) { doc.text(`Idade: ${certificate.idadeCalculada} anos`, 70, y); y += 15; }
-
-    // ========== RESULTADOS DOS EXAMES ==========
-    const campos = camposPorTipo[tipo] || [];
-    if (campos.length > 0) {
-      doc.fillColor('#006633').text('RESULTADOS DOS EXAMES:', 50, y);
-      y += 20;
-      doc.fillColor('#000').fontSize(10);
-      campos.forEach(campo => {
-        const valor = certificate.testResults ? certificate.testResults[campo] : null;
-        const valorExibido = (valor && valor.toString().trim() !== '') ? valor : '(não solicitado)';
-        const nomeFormatado = formatarNomeCampo(campo);
-        doc.text(`${nomeFormatado}: ${valorExibido}`, 70, y);
-        y += 15;
-        if (y > 700) { doc.addPage(); y = 50; }
-      });
-    }
-
-    if (certificate.imcCalculado) {
-      doc.fillColor('#006633').text('ÍNDICE DE MASSA CORPORAL:', 50, y);
-      y += 20;
-      doc.fillColor('#000').fontSize(11).text(`IMC: ${certificate.imcCalculado} (${certificate.classificacaoIMC})`, 70, y);
-      y += 25;
-    }
-
-    // ========== ASSINATURAS ==========
-    doc.lineWidth(1).moveTo(70, y).lineTo(270, y).stroke();
-    doc.fontSize(10).text('Assinatura do Laborantin', 70, y + 5).text(certificate.createdBy || '______', 70, y + 20);
-    doc.lineWidth(1).moveTo(350, y).lineTo(550, y).stroke();
-    doc.fontSize(10).text('Assinatura do Diretor', 350, y + 5).text(lab.director || '______', 350, y + 20);
-    y += 50;
-
-    // ========== QR CODE AVEC HMAC ==========
+// ============================================
+// PROFIL - VERSION CORRIGÉE (redirection vers inbox)
+// ============================================
+app.get('/profile', requireAuth, async (req, res) => {
     try {
-      const QR_SECRET_HEALTH = process.env.QR_SECRET_HEALTH || 'HEALTH_HMAC_SECRET_2026_a1b2c3d4';
-      let dataString;
-
-      if (tipo === 1) {
-        // Format spécifique pour le certificat Genótipo (type 1)
-        const nameParts = certificate.patientName.split(' ');
-        const firstName = nameParts[0] || '';
-        const lastName = nameParts.slice(1).join(' ') || '';
-        const gender = certificate.patientGender || 'N/I';
-        const genotype = certificate.testResults?.genotipo || '';
-        const bloodGroup = certificate.testResults?.grupoSanguineo || '';
-        const bloodRh = certificate.testResults?.fatorRh || '';
-        // Conversion au format standard (A+, A-, etc.)
-        let fullBlood = bloodGroup;
-        if (bloodRh) {
-          if (bloodRh.includes('Positivo')) fullBlood += '+';
-          else if (bloodRh.includes('Negativo')) fullBlood += '-';
-          else fullBlood += bloodRh;
+        const user = await User.findById(req.session.userId);
+        if (!user) return res.redirect('/');
+        const t = req.t;
+        const unreadCount = await Message.countDocuments({ receiverId: user._id, read: false, isBlocked: false });
+        const genderDisplay = user.gender === 'Homme' ? t('male') : t('female');
+        const unreadBadge = unreadCount > 0 ? `<span class="profile-unread">${unreadCount}</span>` : '';
+        
+        function calculateAge(dateNaissance) {
+            if (!dateNaissance) return "?";
+            const today = new Date();
+            const birthDate = new Date(dateNaissance);
+            let age = today.getFullYear() - birthDate.getFullYear();
+            const monthDiff = today.getMonth() - birthDate.getMonth();
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) age--;
+            return age;
         }
-        dataString = `${certificate.certificateNumber}|${firstName}|${lastName}|${gender}|${genotype}|${fullBlood}`;
-      } else {
-        // Format uniforme pour les autres types (2 à 8)
-        const patientFullName = certificate.patientName;
-        const patientGender = certificate.patientGender || 'N/I';
-        const patientBirthDate = certificate.patientBirthDate ? new Date(certificate.patientBirthDate).toISOString().split('T')[0] : '';
-        const diseaseCategory = certificate.diseaseCategory;
-        const createdAt = new Date(certificate.createdAt).toISOString().split('T')[0];
-        dataString = `${certificate.certificateNumber}|${patientFullName}|${patientGender}|${patientBirthDate}|${diseaseCategory}|${createdAt}`;
-      }
+        
+        const verificationBadge = user.qrVerified ? 
+            '<span class="verified-badge">✓ ' + t('labCertified') + '</span>' : 
+            '<span class="unverified-badge">📝 ' + t('selfDeclared') + '</span>';
+        
+        res.send(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - ${t('myProfile')}</title>
+    ${styles}
+    ${notifyScript}
+    <style>
+        .profile-unread {
+            background: #ff416c;
+            color: white;
+            border-radius: 50%;
+            padding: 2px 6px;
+            font-size: 0.8rem;
+            margin-left: 5px;
+        }
+        .verified-badge {
+            background: #4caf50;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            display: inline-block;
+        }
+        .unverified-badge {
+            background: #ff9800;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+<div class="app-shell">
+    <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
+    
+    <div id="request-popup">
+        <div class="popup-card">
+            <div class="popup-icon">💌</div>
+            <div class="popup-message" id="request-message"></div>
+            <div class="popup-buttons">
+                <button class="accept-btn" onclick="acceptRequest()">${t('acceptRequest')}</button>
+                <button class="reject-btn" onclick="rejectRequest()">${t('rejectRequest')}</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="rejection-popup">
+        <div class="popup-card">
+            <div class="popup-icon">🌸</div>
+            <div class="popup-message" id="rejection-message"></div>
+            <div class="action-buttons">
+                <button class="btn-pink" onclick="goToProfile()" style="flex:1;">${t('returnProfile')}</button>
+                <button class="btn-dark" onclick="goToMatching()" style="flex:1;">${t('newMatch')}</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="loading-popup">
+        <div class="popup-card">
+            <div class="spinner"></div>
+            <div class="popup-message" id="loading-message">${t('sendingRequest')}</div>
+        </div>
+    </div>
+    
+    <div class="page-white">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <a href="/" class="btn-dark" style="padding: 12px 20px; width: auto;">${t('home')}</a>
+            <a href="/inbox" class="btn-pink" style="padding: 12px 20px; width: auto; display: flex; align-items: center;">
+                ${t('messages')} ${unreadBadge}
+            </a>
+            <a href="/settings" style="font-size: 2rem; text-decoration: none;">⚙️</a>
+        </div>
+        
+        <div style="display: flex; justify-content: center; margin: 10px 0;">
+            <select onchange="window.location.href='/lang/'+this.value" style="padding: 8px 15px; border-radius: 20px; border: 2px solid #ff416c; background: white; font-size: 1rem;">
+                <option value="fr" ${user.language === 'fr' ? 'selected' : ''}>🇫🇷 ${t('french')}</option>
+                <option value="en" ${user.language === 'en' ? 'selected' : ''}>🇬🇧 ${t('english')}</option>
+                <option value="pt" ${user.language === 'pt' ? 'selected' : ''}>🇵🇹 ${t('portuguese')}</option>
+                <option value="es" ${user.language === 'es' ? 'selected' : ''}>🇪🇸 ${t('spanish')}</option>
+                <option value="ar" ${user.language === 'ar' ? 'selected' : ''}>🇸🇦 ${t('arabic')}</option>
+                <option value="zh" ${user.language === 'zh' ? 'selected' : ''}>🇨🇳 ${t('chinese')}</option>
+            </select>
+        </div>
+        
+        <div class="photo-circle" style="background-image:url('${user.photo || ''}');"></div>
+        
+        <h2 style="text-align: center;">${user.firstName} ${user.lastName}</h2>
+        <p style="text-align: center; margin: 5px 0;">${verificationBadge}</p>
+        <p style="text-align: center; font-size:1.2rem;">${user.residence || ''} • ${user.region || ''} • ${genderDisplay}</p>
+        
+        <div class="st-group">
+            <div class="st-item"><span>${t('genotype_label')}</span><b>${user.genotype}</b></div>
+            <div class="st-item"><span>${t('blood_label')}</span><b>${user.bloodGroup}</b></div>
+            <div class="st-item"><span>${t('age_label')}</span><b>${calculateAge(user.dob)}</b></div>
+            <div class="st-item"><span>${t('residence_label')}</span><b>${user.residence || ''}</b></div>
+            <div class="st-item"><span>${t('region_label')}</span><b>${user.region || ''}</b></div>
+            <div class="st-item"><span>${t('project_label')}</span><b>${user.desireChild === 'Oui' ? t('yes') : t('no')}</b></div>
+        </div>
+        
+        <a href="/matching" class="btn-pink">${t('findPartner')}</a>
+    </div>
+</div>
 
-      const hmac = crypto.createHmac('sha256', QR_SECRET_HEALTH).update(dataString).digest('hex');
-      const qrData = `${dataString}|${hmac}`; // 7 champs
-      const qrBuffer = await QRCode.toBuffer(qrData, { width: 100 });
-      const pageWidth = doc.page.width;
-      const qrWidth = 100;
-      const qrX = (pageWidth - qrWidth) / 2;
-      doc.image(qrBuffer, qrX, y, { width: qrWidth });
-      y += 110;
-    } catch (qrError) {
-      console.error('Erreur QR:', qrError);
+<script>
+let currentRequestId = null;
+
+async function checkRequests() {
+    try {
+        const res = await fetch('/api/requests/pending');
+        const reqs = await res.json();
+        if (reqs.length > 0) {
+            showRequestPopup(reqs[0]);
+        }
+    } catch(e) {}
+}
+
+function showRequestPopup(r) {
+    currentRequestId = r._id;
+    const msg = '${t('interestPopup')}'.replace('{name}', r.senderId.firstName);
+    document.getElementById('request-message').innerText = msg;
+    document.getElementById('request-popup').style.display = 'flex';
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+}
+
+// 🔴 FONCTION ACCEPTREQUEST CORRIGÉE (redirection vers inbox)
+async function acceptRequest() {
+    if (!currentRequestId) return;
+    const res = await fetch('/api/requests/' + currentRequestId + '/accept', { method: 'POST' });
+    if (res.ok) {
+        document.getElementById('request-popup').style.display = 'none';
+        // Redirection vers la boîte de réception
+        window.location.href = '/inbox';
     }
+}
 
-    // ========== RODAPÉ ==========
-    doc.fontSize(8).fillColor('#666').text('Documento válido em todo território nacional', 0, 780, { align: 'center' });
-    doc.end();
+async function rejectRequest() {
+    if (!currentRequestId) return;
+    const res = await fetch('/api/requests/' + currentRequestId + '/reject', { method: 'POST' });
+    if (res.ok) {
+        document.getElementById('request-popup').style.display = 'none';
+    }
+}
+
+async function checkRejections() {
+    try {
+        const res = await fetch('/api/rejections/unread');
+        const rejs = await res.json();
+        if (rejs.length > 0) {
+            showRejectionPopup(rejs[0]);
+        }
+    } catch(e) {}
+}
+
+function showRejectionPopup(r) {
+    const msg = '${t('rejectionPopup')}'.replace('{name}', r.senderFirstName);
+    document.getElementById('rejection-message').innerText = msg;
+    document.getElementById('rejection-popup').style.display = 'flex';
+    fetch('/api/rejections/' + r.requestId + '/view', { method: 'POST' });
+}
+
+function goToProfile() {
+    document.getElementById('rejection-popup').style.display = 'none';
+    window.location.href = '/profile';
+}
+
+function goToMatching() {
+    document.getElementById('rejection-popup').style.display = 'none';
+    window.location.href = '/matching';
+}
+
+setInterval(checkRequests, 5000);
+setInterval(checkRejections, 5000);
+checkRequests();
+checkRejections();
+</script>
+</body>
+</html>`);
+    } catch(error) {
+        console.error("ERREUR DANS /profile:", error);
+        res.status(500).send('Erreur profil: ' + error.message);
+    }
+});
+// ============================================
+// ============================================
+// MATCHING - VERSION CORRIGÉE (avec calculateAge intégré)
+// ============================================
+app.get('/matching', requireAuth, async (req, res) => {
+    try {
+        const currentUser = await User.findById(req.session.userId);
+        if (!currentUser) return res.redirect('/');
+        const t = req.t;
+        const isSSorAS = (currentUser.genotype === 'SS' || currentUser.genotype === 'AS');
+        const regionFilter = req.query.region || 'all';
+        
+        // 🔴 Fonction calculateAge définie DANS la route
+        function calculateAge(dateNaissance) {
+            if (!dateNaissance) return "?";
+            const today = new Date();
+            const birthDate = new Date(dateNaissance);
+            let age = today.getFullYear() - birthDate.getFullYear();
+            const monthDiff = today.getMonth() - birthDate.getMonth();
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) age--;
+            return age;
+        }
+        
+        const messages = await Message.find({
+            $or: [{ senderId: currentUser._id }, { receiverId: currentUser._id }],
+            isBlocked: false
+        });
+        
+        const conversationIds = new Set();
+        messages.forEach(msg => {
+            if (msg.senderId.toString() !== currentUser._id.toString()) {
+                conversationIds.add(msg.senderId.toString());
+            }
+            if (msg.receiverId.toString() !== currentUser._id.toString()) {
+                conversationIds.add(msg.receiverId.toString());
+            }
+        });
+        
+        const rejectedArray = currentUser.rejectedRequests ? currentUser.rejectedRequests.map(id => id.toString()) : [];
+        const blockedArray = currentUser.blockedUsers ? currentUser.blockedUsers.map(id => id.toString()) : [];
+        const blockedByArray = currentUser.blockedBy ? currentUser.blockedBy.map(id => id.toString()) : [];
+        
+        const excludedIds = [...new Set([
+            ...blockedArray,
+            ...blockedByArray,
+            ...Array.from(conversationIds),
+            ...rejectedArray
+        ])];
+        
+        let query = {
+            _id: { $ne: currentUser._id },
+            gender: currentUser.gender === 'Homme' ? 'Femme' : 'Homme',
+            isPublic: true
+        };
+        
+        if (excludedIds.length > 0) {
+            query._id.$nin = excludedIds;
+        }
+        
+        if (regionFilter === 'mine' && currentUser.region) {
+            query.region = currentUser.region;
+        }
+        
+        let partners = await User.find(query);
+        
+        if (isSSorAS) {
+            partners = partners.filter(p => p.genotype === 'AA');
+        }
+        
+        let partnersHTML = '';
+        if (partners.length === 0) {
+            partnersHTML = `
+                <div class="empty-message">
+                    <span>🔍</span>
+                    <h3>${t('searchOngoing')}</h3>
+                    <p>${t('expandCommunity')}</p>
+                </div>
+            `;
+        } else {
+            partners.forEach(p => {
+                const age = calculateAge(p.dob);
+                
+                // Badge de certification bleu
+                const certifiedBadge = p.qrVerified ? 
+                    '<span class="certified-badge" title="' + t('labCertified') + '">✓</span>' : 
+                    '';
+                
+                partnersHTML += `
+                    <div class="match-card">
+                        <div class="match-photo" style="background-image:url('${p.photo || ''}'); background-size: cover; position: relative;">
+                            ${certifiedBadge}
+                        </div>
+                        <div class="match-info">
+                            <b style="font-size:1.2rem;">${p.firstName}</b>
+                            ${certifiedBadge ? '<span class="certified-badge-small" title="' + t('labCertified') + '">✓</span>' : ''}
+                            <br><span style="font-size:0.9rem;">${p.genotype} • ${age} ans</span>
+                            <br><span style="font-size:0.8rem; color:#666;">${p.residence || ''} • ${p.region || ''}</span>
+                        </div>
+                        <div class="match-actions">
+                            <button class="btn-action btn-contact" onclick="sendInterest('${p._id}')">${t('contact')}</button>
+                            <button class="btn-action btn-details" onclick="showDetails('${p._id}')">${t('details')}</button>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        const ssasPopup = isSSorAS ? `
+            <div id="genlove-popup" style="display:flex;">
+                <div class="popup-card">
+                    <div class="popup-icon">❤️</div>
+                    <div class="popup-title">${t('healthCommitment')}</div>
+                    <div class="popup-message">
+                        ${currentUser.genotype === 'AS' ? t('popupMessageAS') : t('popupMessageSS')}
+                    </div>
+                    <button class="ok-btn" onclick="document.getElementById('genlove-popup').style.display='none';">${t('understood')}</button>
+                </div>
+            </div>
+        ` : '';
+        
+        res.send(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - ${t('compatiblePartners')}</title>
+    ${styles}
+    ${notifyScript}
+    <style>
+        #genlove-popup { display: ${isSSorAS ? 'flex' : 'none'}; position: fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); z-index:10000; align-items:center; justify-content:center; padding:20px; }
+        #loading-popup { display: none; position: fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px; }
+        #popup-overlay { display: none; }
+        .empty-message { text-align: center; padding: 50px 20px; color: #666; }
+        .empty-message span { font-size: 4rem; display: block; margin-bottom: 20px; }
+        
+        /* Style pour le badge de certification bleu */
+        .certified-badge {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 22px;
+            height: 22px;
+            background-color: #1e88e5;
+            border: 2px solid white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 10;
+        }
+        
+        .certified-badge-small {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            background-color: #1e88e5;
+            border-radius: 50%;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            text-align: center;
+            line-height: 18px;
+            margin-left: 5px;
+        }
+        
+        .match-photo {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            position: relative;
+            flex-shrink: 0;
+            background-color: #eee;
+        }
+        
+        .match-card {
+            background: white;
+            border-radius: 25px;
+            margin: 10px 15px;
+            padding: 15px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .match-info {
+            flex: 1;
+        }
+        
+        .match-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-action {
+            padding: 8px 12px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            border-radius: 30px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-contact {
+            background: #ff416c;
+            color: white;
+        }
+        
+        .btn-details {
+            background: #1a2a44;
+            color: white;
+        }
+        
+        .filter-container {
+            padding: 15px;
+            background: white;
+            margin: 10px 15px;
+            border-radius: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        
+        .input-box {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 15px;
+            font-size: 1rem;
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+<div class="app-shell">
+    <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
+    ${ssasPopup}
+    
+    <div id="loading-popup">
+        <div class="popup-card">
+            <div class="spinner"></div>
+            <div class="popup-message" id="loading-message">${t('sendingRequest')}</div>
+        </div>
+    </div>
+    
+    <div id="popup-overlay" onclick="closePopup()">
+        <div class="popup-content" onclick="event.stopPropagation()">
+            <span class="close-popup" onclick="closePopup()">&times;</span>
+            <h3 id="pop-name" style="color:#ff416c; margin-top:0;">${t('details')}</h3>
+            <div id="pop-details" style="font-size:0.95rem; color:#333; line-height:1.6;"></div>
+            <div id="pop-msg" class="popup-msg"></div>
+            <button class="btn-pink" style="margin:20px 0 0 0; width:100%" onclick="sendInterestFromPopup()">${t('contact')}</button>
+        </div>
+    </div>
+    
+    <div style="padding:20px; background:white; text-align:center; border-bottom:1px solid #eee;">
+        <h3 style="margin:0; color:#1a2a44;">${t('compatiblePartners')}</h3>
+    </div>
+    
+    <div class="filter-container">
+        <select id="regionFilter" class="input-box" style="margin:0;" onchange="applyRegionFilter()">
+            <option value="all" ${regionFilter === 'all' ? 'selected' : ''}>${t('allRegions')}</option>
+            <option value="mine" ${regionFilter === 'mine' ? 'selected' : ''}>${t('myRegion')} (${currentUser.region || ''})</option>
+        </select>
+    </div>
+    
+    <div id="match-container">
+        ${partnersHTML}
+    </div>
+    
+    <a href="/profile" class="btn-pink">← ${t('backProfile')}</a>
+</div>
+
+<script>
+let partners = ${JSON.stringify(partners)};
+let currentPartnerId = null;
+
+function applyRegionFilter() {
+    const filter = document.getElementById("regionFilter").value;
+    window.location.href = '/matching?region=' + filter;
+}
+
+function sendInterest(receiverId) {
+    currentPartnerId = receiverId;
+    document.getElementById("loading-popup").style.display = 'flex';
+    document.getElementById("loading-message").innerText = '${t('sendingRequest')}';
+    
+    fetch('/api/requests', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ receiverId })
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('loading-message').innerText = '${t('requestSent')}';
+        setTimeout(() => {
+            document.getElementById('loading-popup').style.display = 'none';
+            if (data.success) {
+                const partner = partners.find(p => p._id === receiverId);
+                showNotify('${t('requestSent')} ' + (partner ? partner.firstName : ''), 'success');
+            } else {
+                showNotify('Erreur: ' + (data.error || 'Inconnue'), 'error');
+            }
+        }, 1000);
+    })
+    .catch(() => {
+        document.getElementById('loading-popup').style.display = 'none';
+        showNotify('Erreur réseau', 'error');
+    });
+}
+
+function sendInterestFromPopup() {
+    if (currentPartnerId) {
+        sendInterest(currentPartnerId);
+        closePopup();
+    }
+}
+
+function showDetails(partnerId) {
+    const partner = partners.find(p => p._id === partnerId);
+    if (!partner) return;
+    
+    currentPartnerId = partner._id;
+    
+    const myGt = '${currentUser.genotype}';
+    
+    // Fonction calculateAge redéfinie dans le script aussi
+    function calculateAge(dob) {
+        if (!dob) return "?";
+        const birthDate = new Date(dob);
+        const today = new Date();
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const monthDiff = today.getMonth() - birthDate.getMonth();
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) age--;
+        return age;
+    }
+    
+    const age = calculateAge(partner.dob);
+    
+    document.getElementById('pop-name').innerText = partner.firstName || "Profil";
+    document.getElementById('pop-details').innerHTML = 
+        '<b>${t('genotype_label')}: </b> ' + partner.genotype + '<br>' +
+        '<b>${t('blood_label')}: </b> ' + partner.bloodGroup + '<br>' +
+        '<b>${t('residence_label')}: </b> ' + (partner.residence || '') + '<br>' +
+        '<b>${t('region_label')}: </b> ' + (partner.region || '') + '<br>' +
+        '<b>${t('age_label')}: </b> ' + age + ' ans<br><br>' +
+        '<b>${t('project_label')}: </b><br>' +
+        '<i>' + (partner.desireChild === 'Oui' ? '${t('yes')}' : '${t('no')}') + '</i>' +
+        (partner.qrVerified ? '<br><br><span style="color:#1e88e5;">✓ ' + '${t('labCertified')}' + '</span>' : '');
+    
+    let msg = "";
+    if(myGt === "AA" && partner.genotype === "AA") {
+        msg = "<b>✨ L'Union Sérénité :</b> Félicitations ! Votre compatibilité génétique est idéale.";
+    }
+    else if(myGt === "AA" && partner.genotype === "AS") {
+        msg = "<b>🛡️ L'Union Protectrice :</b> Excellent choix. En tant que AA, vous jouez un rôle protecteur.";
+    }
+    else if(myGt === "AA" && partner.genotype === "SS") {
+        msg = "<b>💝 L'Union Solidaire :</b> Une union magnifique et sans crainte.";
+    }
+    else if(myGt === "AS" && partner.genotype === "AA") {
+        msg = "<b>⚖️ L'Union Équilibrée :</b> Votre choix est responsable !";
+    }
+    else if(myGt === "SS" && partner.genotype === "AA") {
+        msg = "<b>🌈 L'Union Espoir :</b> Vous avez fait le choix le plus sûr.";
+    }
+    else {
+        msg = "<b>💬 Compatibilité standard :</b> Vous pouvez échanger avec ce profil.";
+    }
+    
+    document.getElementById('pop-msg').innerHTML = msg;
+    document.getElementById('popup-overlay').style.display = 'flex';
+}
+
+function closePopup() {
+    document.getElementById('popup-overlay').style.display = 'none';
+}
+</script>
+</body>
+</html>`);
+    } catch(error) {
+        console.error("ERREUR DANS /matching:", error);
+        res.status(500).send('Erreur matching: ' + error.message);
+    }
+});
+
+// ============================================
+// INBOX
+// ============================================
+app.get('/inbox', requireAuth, async (req, res) => {
+    try {
+        const currentUser = await User.findById(req.session.userId);
+        if (!currentUser) return res.redirect('/');
+        
+        const t = req.t;
+        
+        const messages = await Message.find({
+            $or: [{ senderId: currentUser._id }, { receiverId: currentUser._id }],
+            isBlocked: false
+        })
+        .populate('senderId receiverId')
+        .sort({ timestamp: -1 });
+        
+        const conversations = new Map();
+        
+        for (const m of messages) {
+            const other = m.senderId._id.equals(currentUser._id) ? m.receiverId : m.senderId;
+            
+            if (currentUser.blockedUsers && currentUser.blockedUsers.includes(other._id)) {
+                continue;
+            }
+            
+            if (!conversations.has(other._id.toString())) {
+                const unread = await Message.countDocuments({
+                    senderId: other._id,
+                    receiverId: currentUser._id,
+                    read: false,
+                    isBlocked: false
+                });
+                conversations.set(other._id.toString(), {
+                    user: other,
+                    last: m,
+                    unread
+                });
+            }
+        }
+        
+        let inboxHTML = '';
+        if (conversations.size === 0) {
+            inboxHTML = `
+                <div class="empty-message">
+                    <span>📭</span>
+                    <h3>${t('emptyInbox')}</h3>
+                    <p>${t('startConversation')}</p>
+                    <a href="/matching" class="btn-pink" style="display: inline-block; width: auto; margin-top: 20px;">${t('findPartners')}</a>
+                </div>
+            `;
+        } else {
+            conversations.forEach((conv, id) => {
+                const timeAgo = formatTimeAgo(conv.last.timestamp, currentUser.language);
+                inboxHTML += `
+                    <div class="inbox-item ${conv.unread ? 'unread' : ''}" onclick="window.location.href='/chat?partnerId=${id}'">
+                        <div style="display: flex; justify-content: space-between;">
+                            <b class="user-name">${conv.user.firstName} ${conv.user.lastName}</b>
+                            <span style="font-size:0.9rem; color:#999;">${timeAgo}</span>
+                        </div>
+                        <div class="message-preview" style="margin-top: 5px;">
+                            ${conv.last.text.substring(0, 50)}${conv.last.text.length > 50 ? '...' : ''}
+                        </div>
+                        ${conv.unread > 0 ? `<span class="unread-badge">${conv.unread}</span>` : ''}
+                    </div>
+                `;
+            });
+        }
+        
+        res.send(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - ${t('inboxTitle')}</title>
+    ${styles}
+    ${notifyScript}
+</head>
+<body>
+    <div class="app-shell">
+        <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
+        <div class="page-white">
+            <h2>${t('inboxTitle')}</h2>
+            ${inboxHTML}
+            <div class="navigation">
+                <a href="/profile" class="nav-link">← ${t('backProfile')}</a>
+                <a href="/matching" class="nav-link">${t('findPartner')}</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>`);
+    } catch(error) {
+        console.error(error);
+        res.status(500).send('Erreur inbox');
+    }
+});
+
+// ============================================
+// CHAT
+// ============================================
+app.get('/chat', requireAuth, async (req, res) => {
+    try {
+        const currentUser = await User.findById(req.session.userId);
+        const partnerId = req.query.partnerId;
+        
+        if (!partnerId) return res.redirect('/inbox');
+        
+        const partner = await User.findById(partnerId);
+        if (!partner) return res.redirect('/inbox');
+        
+        const t = req.t;
+        
+        const isBlockedByPartner = partner.blockedBy && partner.blockedBy.includes(currentUser._id);
+        const hasBlockedPartner = currentUser.blockedUsers && currentUser.blockedUsers.includes(partnerId);
+        
+        if (isBlockedByPartner) {
+            return res.send(`
+                <div class="app-shell">
+                    <div class="page-white" style="text-align: center; padding: 50px 20px;">
+                        <h2>⛔ ${t('blockedByUser')}</h2>
+                        <p>${t('blockedMessage')}</p>
+                        <a href="/inbox" class="btn-pink">${t('backHome')}</a>
+                    </div>
+                </div>
+            `);
+        }
+        
+        await Message.updateMany(
+            { senderId: partnerId, receiverId: currentUser._id, read: false, isBlocked: false },
+            { read: true }
+        );
+        
+        const messages = await Message.find({
+            $or: [
+                { senderId: currentUser._id, receiverId: partnerId },
+                { senderId: partnerId, receiverId: currentUser._id }
+            ],
+            isBlocked: false
+        }).sort({ timestamp: 1 });
+        
+        let msgs = '';
+        messages.forEach(m => {
+            const cls = m.senderId.equals(currentUser._id) ? 'sent' : 'received';
+            msgs += `<div class="bubble ${cls}">${m.text}</div>`;
+        });
+        
+        res.send(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - Chat</title>
+    ${styles}
+    ${notifyScript}
+    <style>
+        .chat-header {
+            background: #1a2a44;
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .chat-messages {
+            padding: 20px;
+            min-height: 60vh;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: #f5f7fb;
+        }
+        .bubble {
+            padding: 12px 18px;
+            border-radius: 20px;
+            max-width: 80%;
+            font-size: 1rem;
+            line-height: 1.4;
+        }
+        .received {
+            background: white;
+            align-self: flex-start;
+            border-bottom-left-radius: 5px;
+        }
+        .sent {
+            background: #ff416c;
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 5px;
+        }
+        .input-area {
+            display: flex;
+            gap: 10px;
+            padding: 15px;
+            background: white;
+            border-top: 2px solid #eee;
+        }
+        .input-area input {
+            flex: 1;
+            padding: 12px 20px;
+            border: 2px solid #e2e8f0;
+            border-radius: 30px;
+            outline: none;
+        }
+        .input-area button {
+            padding: 12px 25px;
+            background: #ff416c;
+            color: white;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-shell">
+        <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
+        <div class="chat-header">
+            <span><b>${partner.firstName}</b></span>
+            <div>
+                <button class="btn-action btn-block" onclick="blockUser('${partnerId}')" style="padding:8px 15px; margin-right:10px;">${t('block')}</button>
+                <a href="/inbox" style="color: white; text-decoration: none; font-size: 1.5rem;">✕</a>
+            </div>
+        </div>
+        
+        <div class="chat-messages" id="messages">
+            ${msgs}
+        </div>
+        
+        ${!hasBlockedPartner ? `
+            <div class="input-area">
+                <input id="msgInput" placeholder="${t('yourMessage')}">
+                <button onclick="sendMessage('${partnerId}')">${t('send')}</button>
+            </div>
+        ` : ''}
+    </div>
+    
+    <script>
+        async function sendMessage(id) {
+            const msg = document.getElementById('msgInput');
+            if (msg.value.trim()) {
+                await fetch('/api/messages', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ receiverId: id, text: msg.value })
+                });
+                location.reload();
+            }
+        }
+        
+        async function blockUser(id) {
+            if (confirm('${t('block')} ?')) {
+                await fetch('/api/block/' + id, { method: 'POST' });
+                window.location.href = '/inbox';
+            }
+        }
+        
+        document.getElementById('msgInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                sendMessage('${partnerId}');
+            }
+        });
+        
+        window.scrollTo(0, document.body.scrollHeight);
+    </script>
+</body>
+</html>`);
+    } catch(error) {
+        console.error(error);
+        res.status(500).send('Erreur chat');
+    }
+});
+
+// ============================================
+// SETTINGS - AVEC TRADUCTIONS COMPLÈTES
+// ============================================
+app.get('/settings', requireAuth, async (req, res) => {
+    try {
+        const currentUser = await User.findById(req.session.userId);
+        const t = req.t;
+        const blockedCount = currentUser.blockedUsers ? currentUser.blockedUsers.length : 0;
+        
+        res.send(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - ${t('settingsTitle')}</title>
+    ${styles}
+    ${notifyScript}
+    <style>
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #ff416c;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        .danger-zone {
+            border: 2px solid #dc3545;
+            margin-top: 20px;
+        }
+        #delete-confirm-popup {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+<div class="app-shell">
+    <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
+    
+    <div id="delete-confirm-popup">
+        <div class="popup-card" style="max-width:340px;">
+            <div class="popup-icon">⚠️</div>
+            <h3 style="color:#dc3545; margin-bottom:15px;">${t('deleteAccount')}</h3>
+            <p style="color:#666; margin-bottom:25px; font-size:1rem;">
+                ${t('confirmDelete')}<br>
+                <strong>${t('deleteWarning') || 'Cette action effacera définitivement toutes vos données.'}</strong>
+            </p>
+            <div style="display:flex; gap:10px;">
+                <button onclick="confirmDelete()" style="flex:1; background:#dc3545; color:white; border:none; padding:15px; border-radius:50px; font-weight:bold; cursor:pointer;">${t('delete')}</button>
+                <button onclick="closeDeletePopup()" style="flex:1; background:#eee; color:#333; border:none; padding:15px; border-radius:50px; font-weight:bold; cursor:pointer;">${t('cancel') || 'Annuler'}</button>
+            </div>
+        </div>
+    </div>
+    
+    <div style="padding:25px; background:white; text-align:center;">
+        <div style="font-size:2.5rem; font-weight:bold;">
+            <span style="color:#1a2a44;">Gen</span><span style="color:#ff416c;">love</span>
+        </div>
+    </div>
+    
+    <!-- CONFIDENTIALITÉ corrigé -->
+    <div style="padding:15px 20px 5px 20px; font-size:0.75rem; color:#888; font-weight:bold;">${t('confidentiality')}</div>
+    <div class="st-group">
+        <div class="st-item">
+            <span>${t('visibility')}</span>
+            <label class="switch">
+                <input type="checkbox" id="visibilitySwitch" ${currentUser.isPublic ? 'checked' : ''} onchange="updateVisibility(this.checked)">
+                <span class="slider"></span>
+            </label>
+        </div>
+        <!-- Statut actuel corrigé -->
+        <div class="st-item" style="font-size:0.8rem; color:#666;">
+            ${t('currentStatus')} : <b id="status" style="color:#ff416c;">${currentUser.isPublic ? t('public') : t('private')}</b>
+        </div>
+    </div>
+    
+    <div style="padding:15px 20px 5px 20px; font-size:0.75rem; color:#888; font-weight:bold;">${t('language')}</div>
+    <div class="st-group">
+        <div class="st-item">
+            <span>${t('language')}</span>
+            <select onchange="window.location.href='/lang/'+this.value" style="padding:8px; border-radius:10px; border:1px solid #ddd;">
+                <option value="fr" ${currentUser.language === 'fr' ? 'selected' : ''}>🇫🇷 ${t('french')}</option>
+                <option value="en" ${currentUser.language === 'en' ? 'selected' : ''}>🇬🇧 ${t('english')}</option>
+                <option value="pt" ${currentUser.language === 'pt' ? 'selected' : ''}>🇵🇹 ${t('portuguese')}</option>
+                <option value="es" ${currentUser.language === 'es' ? 'selected' : ''}>🇪🇸 ${t('spanish')}</option>
+                <option value="ar" ${currentUser.language === 'ar' ? 'selected' : ''}>🇸🇦 ${t('arabic')}</option>
+                <option value="zh" ${currentUser.language === 'zh' ? 'selected' : ''}>🇨🇳 ${t('chinese')}</option>
+            </select>
+        </div>
+    </div>
+    
+    <div style="padding:15px 20px 5px 20px; font-size:0.75rem; color:#888; font-weight:bold;">${t('account') || 'COMPTE'}</div>
+    <div class="st-group">
+        <!-- Modifier corrigé -->
+        <a href="/edit-profile" style="text-decoration:none;" class="st-item">
+            <span>✏️ ${t('editProfile')}</span>
+            <b>${t('modify')} ➔</b>
+        </a>
+        <a href="/blocked-list" style="text-decoration:none;" class="st-item">
+            <span>🚫 ${t('blockedUsers')}</span>
+            <b>${blockedCount} ➔</b>
+        </a>
+    </div>
+    <div style="padding:15px 20px 5px 20px; font-size:0.75rem; color:#888; font-weight:bold;">
+  🔐 DADOS DE ACESSO
+</div>
+<div class="st-group">
+  <div class="st-item" onclick="showChangeEmailModal()" style="cursor:pointer;">
+    <span>📧 Alterar email</span>
+    <b>✎</b>
+  </div>
+  <div class="st-item" onclick="showChangePasswordModal()" style="cursor:pointer;">
+    <span>🔒 Alterar a senha</span>
+    <b>✎</b>
+  </div>
+</div>
+
+<div class="st-group danger-zone">
+  <div class="st-item" style="color:#dc3545; font-weight:bold; justify-content:center;">
+    ⚠️ ${t('dangerZone')} ⚠️
+  </div>
+  <div style="padding:20px; text-align:center;">
+    <p style="color:#666; margin-bottom:20px; font-size:0.95rem;">
+      ${t('deleteAccount')}
+    </p>
+    <button id="deleteBtn" class="btn-action btn-block" style="background:#dc3545; color:white; padding:15px; width:100%; font-size:1.1rem;" onclick="showDeleteConfirmation()">
+      🗑️ ${t('delete')}
+    </button>
+  </div>
+</div>
+
+<a href="/profile" class="btn-pink">← ${t('backProfile')}</a>
+<a href="/logout-success" class="btn-dark" style="text-decoration:none;">${t('logout')}</a>
+</div>
+
+<!-- ========== MODALS ========== -->
+<div id="email-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
+  <div class="popup-card" style="max-width:350px;">
+    <h3 style="color:#ff416c;">Modifier l'email</h3>
+    <div class="input-label">Novo email</div>
+    <input type="email" id="new-email" class="input-box">
+    <div class="input-label">Senha atual</div>
+    <div style="position: relative;">
+      <input type="password" id="email-password" class="input-box" style="padding-right: 45px;">
+      <span onclick="togglePassword('email-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+    </div>
+    <button onclick="updateEmail()" class="btn-pink" style="margin-top:15px;">Confirmar</button>
+    <button onclick="closeEmailModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Cancelar</button>
+  </div>
+</div>
+
+<div id="password-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); z-index:20000; align-items:center; justify-content:center; padding:20px;">
+  <div class="popup-card" style="max-width:350px;">
+    <h3 style="color:#ff416c;">Alterar a senha</h3>
+    <div class="input-label">Senha atual</div>
+    <div style="position: relative;">
+      <input type="password" id="current-password" class="input-box" style="padding-right: 45px;">
+      <span onclick="togglePassword('current-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+    </div>
+    <div class="input-label">Nova Senha</div>
+    <div style="position: relative;">
+      <input type="password" id="new-password" class="input-box" style="padding-right: 45px;">
+      <span onclick="togglePassword('new-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+    </div>
+    <div class="input-label">Confirmar a nova senha</div>
+    <div style="position: relative;">
+      <input type="password" id="confirm-new-password" class="input-box" style="padding-right: 45px;">
+      <span onclick="togglePassword('confirm-new-password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
+    </div>
+    <button onclick="updatePassword()" class="btn-pink" style="margin-top:15px;">Confirmar</button>
+    <button onclick="closePasswordModal()" style="margin-top:10px; background:#eee; color:#333; padding:12px; border:none; border-radius:30px; width:100%;">Cancelar</button>
+  </div>
+</div>
+<!-- ========== FIN MODALS ========== -->
+
+<script>
+function showDeleteConfirmation() {
+    document.getElementById('delete-confirm-popup').style.display = 'flex';
+}
+
+function closeDeletePopup() {
+    document.getElementById('delete-confirm-popup').style.display = 'none';
+}
+
+async function confirmDelete() {
+    closeDeletePopup();
+    showNotify('${t('deleting') || 'Suppression en cours...'}', 'info');
+    try {
+        const res = await fetch('/api/delete-account', { method: 'DELETE' });
+        if (res.ok) {
+            showNotify('${t('deleteSuccess') || 'Compte supprimé'}', 'success');
+            setTimeout(() => window.location.href = '/', 1500);
+        } else {
+            showNotify('${t('deleteError') || 'Erreur lors de la suppression'}', 'error');
+        }
+    } catch(e) {
+        showNotify('${t('networkError') || 'Erreur réseau'}', 'error');
+    }
+}
+
+async function updateVisibility(isPublic) {
+    const status = document.getElementById('status');
+    status.innerText = isPublic ? '${t('public')}' : '${t('private')}';
+    const res = await fetch('/api/visibility', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ isPublic })
+    });
+    if (!res.ok) {
+        showNotify('${t('updateError') || 'Erreur lors de la mise à jour'}', 'error');
+        document.getElementById('visibilitySwitch').checked = !isPublic;
+        status.innerText = !isPublic ? '${t('public')}' : '${t('private')}';
+    }
+}
+
+function showChangeEmailModal() { 
+  document.getElementById('email-modal').style.display = 'flex'; 
+}
+
+function closeEmailModal() { 
+  document.getElementById('email-modal').style.display = 'none'; 
+  document.getElementById('new-email').value = ''; 
+  document.getElementById('email-password').value = ''; 
+}
+
+async function updateEmail() {
+  const newEmail = document.getElementById('new-email').value;
+  const password = document.getElementById('email-password').value;
+  if (!newEmail || !password) { 
+    showNotify("Preencha todos os campos", "error"); 
+    return; 
+  }
+  showNotify("Atualizando...", "info");
+  try {
+    const response = await fetch('/api/user/update-email', { 
+      method: 'PUT', 
+      headers: { 'Content-Type': 'application/json' }, 
+      body: JSON.stringify({ newEmail, password }) 
+    });
+    const data = await response.json();
+    if (data.success) { 
+      showNotify(data.message, "success"); 
+      closeEmailModal(); 
+      setTimeout(() => location.reload(), 2000); 
+    } else { 
+      showNotify(data.error, "error"); 
+    }
+  } catch(e) { 
+    showNotify("Erreur réseau", "error"); 
+  }
+}
+
+function showChangePasswordModal() { 
+  document.getElementById('password-modal').style.display = 'flex'; 
+}
+
+function closePasswordModal() { 
+  document.getElementById('password-modal').style.display = 'none'; 
+  document.getElementById('current-password').value = ''; 
+  document.getElementById('new-password').value = ''; 
+  document.getElementById('confirm-new-password').value = ''; 
+}
+
+async function updatePassword() {
+  const currentPassword = document.getElementById('current-password').value;
+  const newPassword = document.getElementById('new-password').value;
+  const confirmPassword = document.getElementById('confirm-new-password').value;
+  if (!currentPassword || !newPassword) { 
+    showNotify("Veuillez remplir tous les champs", "error"); 
+    return; 
+  }
+  if (newPassword !== confirmPassword) { 
+    showNotify("Les mots de passe ne correspondent pas", "error"); 
+    return; 
+  }
+  if (newPassword.length < 6) { 
+    showNotify("Le mot de passe doit contenir au moins 6 caractères", "error"); 
+    return; 
+  }
+  showNotify("Modification en cours...", "info");
+  try {
+    const response = await fetch('/api/user/update-password', { 
+      method: 'PUT', 
+      headers: { 'Content-Type': 'application/json' }, 
+      body: JSON.stringify({ currentPassword, newPassword, confirmPassword }) 
+    });
+    const data = await response.json();
+    if (data.success) { 
+      showNotify(data.message, "success"); 
+      closePasswordModal(); 
+    } else { 
+      showNotify(data.error, "error"); 
+    }
+  } catch(e) { 
+    showNotify("Erreur réseau", "error"); 
+  }
+}
+
+function togglePassword(fieldId) {
+  const field = document.getElementById(fieldId);
+  if (field.type === "password") {
+    field.type = "text";
+  } else {
+    field.type = "password";
+  }
+}
+</script>
+</body>
+</html>`);
+    } catch(error) {
+        console.error(error);
+        res.status(500).send('Erreur paramètres');
+    }
+});
+
+// ============================================
+// ============================================
+// EDIT PROFILE - AVEC TRADUCTIONS COMPLÈTES
+// ============================================
+app.get('/edit-profile', requireAuth, async (req, res) => {
+    try {
+        const user = await User.findById(req.session.userId);
+        const t = req.t;
+        const datePicker = generateDateOptions(req, user.dob);
+        
+        const bloodOptions = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(g => 
+            `<option value="${g}" ${user.bloodGroup === g ? 'selected' : ''}>${g}</option>`
+        ).join('');
+        
+        res.send(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - ${t('editProfile')}</title>
+    ${styles}
+    ${notifyScript}
+    <style>
+        /* Style pour les champs verrouillés (données QR) */
+        input[readonly], select[readonly] {
+            background-color: #f3f4f6;
+            cursor: not-allowed;
+            opacity: 0.9;
+            border-color: #10b981;
+        }
+        
+        /* Indicateur visuel pour les données protégées */
+        .protected-badge {
+            font-size: 11px;
+            color: #10b981;
+            margin-top: -8px;
+            margin-bottom: 10px;
+            padding-left: 5px;
+        }
+        
+        .protected-badge::before {
+            content: "✓";
+            margin-right: 3px;
+            font-weight: bold;
+        }
+        
+        /* Photo circle */
+        .photo-circle {
+            width: 110px;
+            height: 110px;
+            border: 4px solid #ff416c;
+            border-radius: 50%;
+            margin: 15px auto;
+            background-size: cover;
+            background-position: center;
+            box-shadow: 0 10px 25px rgba(255,65,108,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        
+        /* Input label */
+        .input-label {
+            text-align: left;
+            font-size: 0.9rem;
+            color: #1a2a44;
+            margin-top: 10px;
+            font-weight: 600;
+        }
+        
+        /* Input box */
+        .input-box {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #e2e8f0;
+            border-radius: 15px;
+            margin: 8px 0;
+            font-size: 1rem;
+            background: #f8f9fa;
+            transition: all 0.3s;
+            box-sizing: border-box;
+        }
+        
+        .input-box:focus {
+            border-color: #ff416c;
+            outline: none;
+            box-shadow: 0 0 0 4px rgba(255,65,108,0.2);
+        }
+        
+        /* Date picker */
+        .custom-date-picker {
+            display: flex;
+            gap: 5px;
+            margin: 10px 0;
+        }
+        
+        .date-part {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 15px;
+            font-size: 0.9rem;
+            background: #f8f9fa;
+        }
+        
+        .date-part:focus {
+            border-color: #ff416c;
+            outline: none;
+        }
+        
+        /* Bouton */
+        .btn-pink {
+            background: #ff416c;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 60px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            width: 90%;
+            margin: 10px auto;
+            display: block;
+            text-align: center;
+            text-decoration: none;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 10px 20px rgba(255,65,108,0.3);
+        }
+        
+        .btn-pink:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px rgba(255,65,108,0.4);
+        }
+        
+        /* Back link */
+        .back-link {
+            display: inline-block;
+            margin: 15px 0;
+            color: #666;
+            text-decoration: none;
+            font-size: 1rem;
+        }
+        
+        /* Page white */
+        .page-white {
+            background: white;
+            padding: 20px;
+            flex: 1;
+        }
+        
+        /* App shell */
+        .app-shell {
+            width: 100%;
+            max-width: 420px;
+            min-height: 100vh;
+            background: #f4e9da;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 0 30px rgba(0,0,0,0.1);
+            margin: 0 auto;
+        }
+        
+        h2 {
+            font-size: 2rem;
+            margin-bottom: 20px;
+            color: #1a2a44;
+        }
+        
+        /* Styles pour les titres de section */
+        .section-title {
+            font-weight: bold;
+            font-size: 16px;
+            text-align: center;
+            margin-bottom: 6px;
+            color: #1a2a44;
+        }
+        
+        .sub-text {
+            font-size: 14px;
+            color: #6b7280;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+<div class="app-shell">
+    <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
+    <div class="page-white">
+        <h2>${t('editProfile')}</h2>
+        
+        <!-- ============================================ -->
+        <!-- DONNÉES PROTÉGÉES (NON MODIFIABLES) -->
+        <!-- ============================================ -->
+        <div style="margin-bottom: 5px;">
+            <span style="font-size: 12px; color: #10b981; font-weight: bold;">✓ ${t('automaticData')} (${t('certificate')})</span>
+        </div>
+        
+        <!-- SI L'UTILISATEUR VIENT D'UN QR CODE (qrVerified = true), ON BLOQUE LES CHAMPS -->
+        ${user.qrVerified ? `
+            <!-- Prénom - VERROUILLÉ -->
+            <div class="input-label">${t('firstName')}</div>
+            <input type="text" class="input-box" value="${user.firstName}" readonly>
+            <div class="protected-badge">${t('protectedSource')}</div>
+            
+            <!-- Nom - VERROUILLÉ -->
+            <div class="input-label">${t('lastName')}</div>
+            <input type="text" class="input-box" value="${user.lastName}" readonly>
+            <div class="protected-badge">${t('protectedSource')}</div>
+            
+            <!-- Genre - VERROUILLÉ -->
+            <div class="input-label">${t('gender')}</div>
+            <input type="text" class="input-box" value="${user.gender || ''}" readonly>
+            <div class="protected-badge">${t('protectedSource')}</div>
+            
+            <!-- Génotype - VERROUILLÉ -->
+            <div class="input-label">${t('genotype')}</div>
+            <input type="text" class="input-box" value="${user.genotype || ''}" readonly>
+            <div class="protected-badge">${t('protectedSource')}</div>
+            
+            <!-- Groupe sanguin - VERROUILLÉ -->
+            <div class="input-label">${t('bloodGroup')}</div>
+            <input type="text" class="input-box" value="${user.bloodGroup || ''}" readonly>
+            <div class="protected-badge">${t('protectedSource')}</div>
+        ` : `
+            <!-- POUR INSCRIPTION MANUELLE : CHAMPS MODIFIABLES NORMALEMENT -->
+            <div class="input-label">${t('firstName')}</div>
+            <input type="text" name="firstName" class="input-box" value="${user.firstName}" required>
+            
+            <div class="input-label">${t('lastName')}</div>
+            <input type="text" name="lastName" class="input-box" value="${user.lastName}" required>
+            
+            <div class="input-label">${t('gender')}</div>
+            <select name="gender" class="input-box" required>
+                <option value="Homme" ${user.gender === 'Homme' ? 'selected' : ''}>${t('male')}</option>
+                <option value="Femme" ${user.gender === 'Femme' ? 'selected' : ''}>${t('female')}</option>
+            </select>
+            
+            <div class="input-label">${t('genotype')}</div>
+            <select name="genotype" class="input-box" required>
+                <option value="AA" ${user.genotype === 'AA' ? 'selected' : ''}>AA</option>
+                <option value="AS" ${user.genotype === 'AS' ? 'selected' : ''}>AS</option>
+                <option value="SS" ${user.genotype === 'SS' ? 'selected' : ''}>SS</option>
+            </select>
+            
+            <div class="input-label">${t('bloodGroup')}</div>
+            <select name="bloodGroup" class="input-box" required>
+                ${bloodOptions}
+            </select>
+        `}
+        
+        <!-- ============================================ -->
+        <!-- SÉPARATEUR VISUEL -->
+        <!-- ============================================ -->
+        <div style="height: 2px; background: linear-gradient(90deg, transparent, #ff416c, transparent); margin: 25px 0 15px 0; opacity: 0.3;"></div>
+        
+        <!-- ============================================ -->
+        <!-- PHRASE D'INTRODUCTION POUR DONNÉES PERSONNELLES -->
+        <!-- ============================================ -->
+        <div class="section-title">${t('sectionTitle')}</div>
+        <div class="sub-text">${t('subText')}</div>
+        
+        <!-- ============================================ -->
+        <!-- DONNÉES MODIFIABLES (POUR TOUS) -->
+        <!-- ============================================ -->
+        <div style="margin-bottom: 15px;">
+            <span style="font-size: 12px; color: #ff416c; font-weight: bold;">✎ ${t('personalData')} (${t('modifiable')})</span>
+        </div>
+        
+        <form id="editForm">
+            <!-- Photo - MODIFIABLE -->
+            <div class="input-label">${t('photoPlaceholder') || 'Photo de profil'}</div>
+            <div class="photo-circle" id="photoCircle" style="background-image: url('${user.photo || ''}');" onclick="document.getElementById('photoInput').click()">
+                <span id="photoText" style="${user.photo ? 'display:none;' : ''}">📸</span>
+            </div>
+            <input type="file" id="photoInput" accept="image/*" style="display:none;" onchange="previewPhoto(event)">
+            <input type="hidden" name="photo" id="photoBase64" value="${user.photo || ''}">
+            
+            <!-- Date de naissance - MODIFIABLE -->
+            <div class="input-label">${t('dob')}</div>
+            ${datePicker}
+            
+            <!-- Ville - MODIFIABLE -->
+            <div class="input-label">${t('city')}</div>
+            <input type="text" name="residence" class="input-box" value="${user.residence || ''}" required>
+            
+            <!-- Région - MODIFIABLE -->
+            <div class="input-label">${t('region')}</div>
+            <input type="text" name="region" class="input-box" value="${user.region || ''}" required>
+            
+            <!-- Désir d'enfant - MODIFIABLE -->
+            <div class="input-label">${t('desireChild')}</div>
+            <select name="desireChild" class="input-box" required>
+                <option value="Oui" ${user.desireChild === 'Oui' ? 'selected' : ''}>${t('yes')}</option>
+                <option value="Non" ${user.desireChild === 'Non' ? 'selected' : ''}>${t('no')}</option>
+            </select>
+            
+            <button type="submit" class="btn-pink">${t('editProfile')}</button>
+        </form>
+        
+        <a href="/profile" class="back-link">← ${t('backProfile')}</a>
+    </div>
+</div>
+
+<script>
+let photoBase64 = "${user.photo || ''}";
+
+function previewPhoto(e) {
+    const reader = new FileReader();
+    reader.onload = function() {
+        photoBase64 = reader.result;
+        document.getElementById('photoCircle').style.backgroundImage = 'url(' + photoBase64 + ')';
+        document.getElementById('photoCircle').style.backgroundSize = 'cover';
+        document.getElementById('photoText').style.display = 'none';
+        document.getElementById('photoBase64').value = photoBase64;
+    };
+    reader.readAsDataURL(e.target.files[0]);
+}
+
+document.getElementById('editForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const day = document.querySelector('select[name="day"]').value;
+    const month = document.querySelector('select[name="month"]').value;
+    const year = document.querySelector('select[name="year"]').value;
+    
+    if (!day || !month || !year) {
+        alert("${t('dob')} ${t('required')}");
+        return;
+    }
+    
+    const dob = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
+    
+    const formData = new FormData(e.target);
+    
+    // CONSTRUCTION DYNAMIQUE DES DONNÉES SELON LE TYPE D'UTILISATEUR
+    const data = {
+        residence: formData.get('residence'),
+        region: formData.get('region'),
+        desireChild: formData.get('desireChild'),
+        dob: dob,
+        photo: photoBase64
+    };
+    
+    // SI INSCRIPTION MANUELLE (qrVerified = false), ON INCLUT AUSSI LES CHAMPS MODIFIABLES
+    if (${!user.qrVerified}) {
+        data.firstName = document.querySelector('input[name="firstName"]').value;
+        data.lastName = document.querySelector('input[name="lastName"]').value;
+        data.gender = document.querySelector('select[name="gender"]').value;
+        data.genotype = document.querySelector('select[name="genotype"]').value;
+        data.bloodGroup = document.querySelector('select[name="bloodGroup"]').value;
+    }
+    
+    const res = await fetch('/api/users/profile', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+    
+    if (res.ok) {
+        showNotify('${t('editProfile')} ' + '${t('successMessage')}', 'success');
+        setTimeout(() => window.location.href = '/profile', 1000);
+    } else {
+        alert('${t('errorOccurred') || 'Erreur lors de la modification'}');
+    }
+});
+</script>
+</body>
+</html>`);
+    } catch(error) {
+        console.error(error);
+        res.status(500).send('Erreur édition');
+    }
+});
+// ============================================
+// BLOCKED LIST
+// ============================================
+app.get('/blocked-list', requireAuth, async (req, res) => {
+    try {
+        const currentUser = await User.findById(req.session.userId).populate('blockedUsers');
+        const t = req.t;
+        
+        let blockedHTML = '';
+        if (currentUser.blockedUsers && currentUser.blockedUsers.length > 0) {
+            currentUser.blockedUsers.forEach(user => {
+                blockedHTML += `
+                    <div class="inbox-item" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span><b style="font-size:1.2rem;">${user.firstName} ${user.lastName}</b></span>
+                        <button class="btn-action" onclick="unblockUser('${user._id}')" style="background:#4CAF50; color:white; padding:8px 15px;">${t('unblock')}</button>
+                    </div>
+                `;
+            });
+        } else {
+            blockedHTML = `<div class="empty-message"><span>🔓</span><p>${t('noBlocked')}</p></div>`;
+        }
+        
+        res.send(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - ${t('blockedUsers')}</title>
+    ${styles}
+    ${notifyScript}
+</head>
+<body>
+    <div class="app-shell">
+        <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
+        <div class="page-white">
+            <h2>${t('blockedUsers')}</h2>
+            ${blockedHTML}
+            <a href="/settings" class="back-link">← ${t('backHome')}</a>
+        </div>
+    </div>
+    
+    <script>
+        async function unblockUser(id) {
+            await fetch('/api/unblock/' + id, { method: 'POST' });
+            showNotify('Utilisateur débloqué', 'success');
+            setTimeout(() => location.reload(), 1000);
+        }
+    </script>
+</body>
+</html>`);
+    } catch(error) {
+        console.error(error);
+        res.status(500).send('Erreur');
+    }
+});
+
+// ============================================
+// LOGOUT SUCCESS
+// ============================================
+app.get('/logout-success', (req, res) => {
+    const t = req.t;
+    req.session.destroy();
+    res.send(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - ${t('logoutSuccess')}</title>
+    ${styles}
+    <style>
+        .end-overlay {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1a2a44, #ff416c);
+        }
+        .end-card {
+            background: white;
+            border-radius: 30px;
+            padding: 40px 30px;
+            text-align: center;
+            max-width: 380px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body class="end-overlay">
+    <div class="end-card">
+        <h2 style="font-size:2.2rem; color: #1a2a44;">${t('logoutSuccess')}</h2>
+        <p style="font-size:1.3rem; margin:25px 0; color: #666;">${t('seeYouSoon')}</p>
+        <a href="/" class="btn-pink" style="text-decoration: none;">${t('home')}</a>
+    </div>
+</body>
+</html>`);
+});
+
+// ============================================
+// ROUTES API
+// ============================================
+
+app.post('/api/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email et mot de passe requis" });
+    }
+    
+    const user = await User.findOne({ email });
+    
+    if (!user || !user.passwordHash) {
+      return res.status(401).json({ error: "Email ou mot de passe incorrect" });
+    }
+    
+    const isValid = await bcrypt.compare(password, user.passwordHash);
+    
+    if (!isValid) {
+      return res.status(401).json({ error: "Email ou mot de passe incorrect" });
+    }
+    
+    req.session.userId = user._id;
+    req.session.isVerified = user.isVerified;
+    await new Promise(resolve => req.session.save(resolve));
+    
+    res.json({ success: true, userId: user._id, firstName: user.firstName });
+    
+  } catch(e) {
+    console.error("Erreur login:", e);
+    res.status(500).json({ error: "Erreur lors de la connexion" });
+  }
+});
+app.post('/api/register', async (req, res) => {
+  try {
+    const userData = req.body;
+    
+    // Si l'email existe déjà, on ne fait rien de spécial
+    const user = new User(userData);
+    await user.save();
+    
+    req.session.userId = user._id;
+    req.session.isVerified = false;
+    await new Promise(resolve => req.session.save(resolve));
+    
+    console.log("✅ Utilisateur créé:", { 
+      id: user._id, 
+      email: user.email, 
+      hasPassword: !!user.passwordHash 
+    });
+    
+    res.json({ success: true });
+  } catch(e) {
+    console.error("Erreur register:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post('/api/requests', requireAuth, async (req, res) => {
+    try {
+        const { receiverId } = req.body;
+        
+        const existingRequest = await Request.findOne({
+            senderId: req.session.userId,
+            receiverId,
+            status: 'pending'
+        });
+        
+        if (existingRequest) {
+            return res.status(400).json({ error: "Demande déjà envoyée" });
+        }
+        
+        const request = new Request({
+            senderId: req.session.userId,
+            receiverId,
+            status: 'pending'
+        });
+        
+        await request.save();
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/requests/pending', requireAuth, async (req, res) => {
+    try {
+        const requests = await Request.find({
+            receiverId: req.session.userId,
+            status: 'pending',
+            viewed: false
+        }).populate('senderId', 'firstName');
+        
+        res.json(requests);
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/requests/:id/accept', requireAuth, async (req, res) => {
+    try {
+        const request = await Request.findById(req.params.id);
+        if (!request) return res.status(404).json({ error: 'Demande non trouvée' });
+        
+        request.status = 'accepted';
+        request.viewed = true;
+        await request.save();
+        
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/requests/:id/reject', requireAuth, async (req, res) => {
+    try {
+        const request = await Request.findById(req.params.id);
+        if (!request) return res.status(404).json({ error: 'Demande non trouvée' });
+        
+        request.status = 'rejected';
+        request.viewed = true;
+        await request.save();
+        
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/messages', requireAuth, async (req, res) => {
+    try {
+        const msg = new Message({
+            senderId: req.session.userId,
+            receiverId: req.body.receiverId,
+            text: req.body.text,
+            read: false
+        });
+        await msg.save();
+        res.json(msg);
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/block/:userId', requireAuth, async (req, res) => {
+    try {
+        const current = await User.findById(req.session.userId);
+        const target = await User.findById(req.params.userId);
+        
+        if (!current || !target) return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        
+        if (!current.blockedUsers) current.blockedUsers = [];
+        if (!current.blockedUsers.includes(req.params.userId)) {
+            current.blockedUsers.push(req.params.userId);
+        }
+        
+        if (!target.blockedBy) target.blockedBy = [];
+        if (!target.blockedBy.includes(req.session.userId)) {
+            target.blockedBy.push(req.session.userId);
+        }
+        
+        await Message.updateMany(
+            {
+                $or: [
+                    { senderId: req.session.userId, receiverId: req.params.userId },
+                    { senderId: req.params.userId, receiverId: req.session.userId }
+                ]
+            },
+            { isBlocked: true }
+        );
+        
+        await current.save();
+        await target.save();
+        
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/unblock/:userId', requireAuth, async (req, res) => {
+    try {
+        const current = await User.findById(req.session.userId);
+        
+        if (current.blockedUsers) {
+            current.blockedUsers = current.blockedUsers.filter(id => id.toString() !== req.params.userId);
+            await current.save();
+        }
+        
+        await Message.updateMany(
+            {
+                $or: [
+                    { senderId: req.session.userId, receiverId: req.params.userId },
+                    { senderId: req.params.userId, receiverId: req.session.userId }
+                ]
+            },
+            { isBlocked: false }
+        );
+        
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.put('/api/users/profile', requireAuth, async (req, res) => {
+    try {
+        await User.findByIdAndUpdate(req.session.userId, req.body);
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.put('/api/visibility', requireAuth, async (req, res) => {
+    try {
+        await User.findByIdAndUpdate(req.session.userId, { isPublic: req.body.isPublic });
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.delete('/api/delete-account', requireAuth, async (req, res) => {
+    try {
+        const id = req.session.userId;
+        await Message.deleteMany({ $or: [{ senderId: id }, { receiverId: id }] });
+        await Request.deleteMany({ $or: [{ senderId: id }, { receiverId: id }] });
+        await User.findByIdAndDelete(id);
+        req.session.destroy();
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+// ================ VALIDAÇÃO DO QR DO CERTIFICADO GENÓTIPO ================
+app.post('/api/validate-genotype-qr', async (req, res) => {
+  try {
+    const { qrData } = req.body;
+    if (!qrData) {
+      return res.status(400).json({ error: 'Dados do QR não fornecidos' });
+    }
+    const parts = qrData.split('|').map(s => s.trim());
+    if (parts.length !== 7) {
+      return res.status(400).json({ error: 'Formato de QR inválido (7 champs requis)' });
+    }
+    const hmacRecu = parts.pop();
+    const dataString = parts.join('|');
+    const hmacCalcule = crypto.createHmac('sha256', QR_SECRET_HEALTH).update(dataString).digest('hex');
+    if (hmacCalcule !== hmacRecu) {
+      return res.status(401).json({ error: 'Assinatura inválida - Certificado não autenticado' });
+    }
+    const [numCert, firstName, lastName, genderCode, genotype, bloodGroup] = parts;
+    const gender = genderCode === 'M' ? 'Homme' : 'Femme';
+    const userData = {
+      firstName, lastName, gender, genotype, bloodGroup,
+      qrVerified: true, verificationBadge: 'lab'
+    };
+    res.json({ success: true, userData });
   } catch (error) {
-    console.error('Erreur PDF:', error);
-    res.status(500).json({ erro: error.message });
+    console.error('Erreur validation QR:', error);
+    res.status(500).json({ error: 'Erreur interne du serveur' });
   }
 });
 
-app.listen(PORT, () => console.log(`🚀 Laboratório rodando na porta ${PORT}`));
+// ============================================
+// API - VÉRIFICATION EMAIL
+// ============================================
+app.post('/api/check-email', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const existingUser = await User.findOne({ email });
+    res.json({ exists: !!existingUser });
+  } catch(error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Stockage temporaire des données email/password
+const tempSignups = new Map();
+
+app.post('/api/temp-signup', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ error: "Cet email est déjà utilisé" });
+    }
+    
+    const tempId = crypto.randomBytes(16).toString('hex');
+    
+    tempSignups.set(tempId, {
+      email,
+      passwordHash: await bcrypt.hash(password, 10),
+      expires: Date.now() + 30 * 60 * 1000
+    });
+    
+    res.json({ success: true, tempId });
+  } catch(error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+app.get('/api/get-temp-signup', async (req, res) => {
+  try {
+    const tempId = req.session.tempSignupId;
+    if (!tempId || !tempSignups.has(tempId)) {
+      return res.json({ email: null, passwordHash: null });
+    }
+    
+    const tempData = tempSignups.get(tempId);
+    if (tempData.expires < Date.now()) {
+      tempSignups.delete(tempId);
+      return res.json({ email: null, passwordHash: null });
+    }
+    
+    res.json({ 
+      email: tempData.email,
+      passwordHash: tempData.passwordHash
+    });
+  } catch(error) {
+    res.json({ email: null, passwordHash: null });
+  }
+});
+// ============================================
+// API - MODIFIER EMAIL
+// ============================================
+app.put('/api/user/update-email', requireAuth, async (req, res) => {
+  try {
+    const { newEmail, password } = req.body;
+    const userId = req.session.userId;
+
+    if (!newEmail || !password) {
+      return res.status(400).json({ error: "Tous les champs sont requis" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
+
+    const isValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: "Mot de passe incorrect" });
+    }
+
+    const existingUser = await User.findOne({ email: newEmail });
+    if (existingUser && existingUser._id.toString() !== userId) {
+      return res.status(400).json({ error: "Cet email est déjà utilisé" });
+    }
+
+    const emailRegex = /^[^\s@]+@([^\s@]+\.)+[^\s@]+$/;
+    if (!emailRegex.test(newEmail)) {
+      return res.status(400).json({ error: "Format d'email invalide" });
+    }
+
+    user.email = newEmail;
+    await user.save();
+
+    res.json({ success: true, message: "Email modifié avec succès" });
+
+  } catch(error) {
+    console.error(error);
+    res.status(500).json({ error: "Erreur lors de la modification" });
+  }
+});
+
+// ============================================
+// API - MODIFIER MOT DE PASSE
+// ============================================
+app.put('/api/user/update-password', requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+    const userId = req.session.userId;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "Tous les champs sont requis" });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ error: "Les mots de passe ne correspondent pas" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "Le mot de passe doit contenir au moins 6 caractères" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
+
+    const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: "Mot de passe actuel incorrect" });
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.json({ success: true, message: "Mot de passe modifié avec succès" });
+
+  } catch(error) {
+    console.error(error);
+    res.status(500).json({ error: "Erreur lors de la modification" });
+  }
+});
+
+// ============================================
+// DÉMARRAGE
+// ============================================
+app.listen(port, '0.0.0.0', () => {
+    console.log(`🚀 Genlove démarré sur http://localhost:${port}`);
+    console.log(`📱 Routes disponibles:`);
+    console.log(`   - Accueil: /`);
+    console.log(`   - Charte: /charte-engagement`);
+    console.log(`   - Choix inscription: /signup-choice`);
+    console.log(`   - Inscription QR: /signup-qr`);
+    console.log(`   - Inscription manuelle: /signup-manual`);
+    console.log(`   - Générateur QR: /generator`);
+    console.log(`   - Login: /login`);
+    console.log(`   - Profil: /profile`);
+    console.log(`   - Matching: /matching`);
+    console.log(`   - Messages: /inbox`);
+    console.log(`   - Chat: /chat`);
+    console.log(`   - Paramètres: /settings`);
+    console.log(`   - Édition profil: /edit-profile`);
+    console.log(`   - Liste bloqués: /blocked-list`);
+});
+
+process.on('SIGINT', () => {
+    mongoose.connection.close(() => {
+        console.log('📦 Déconnexion MongoDB');
+        process.exit(0);
+    });
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
