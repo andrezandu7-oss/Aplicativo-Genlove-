@@ -4,8 +4,8 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo')
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const QR_SECRET_HEALTH = process.env.QR_SECRET_HEALTH || 'HEALTH_HMAC_SECRET_2026_a1b2c3d4';
 const app = express();
+
 console.log("🚀 Serveur en cours de démarrage...");
 const port = process.env.PORT || 3000;
 
@@ -4908,26 +4908,36 @@ app.post('/api/validate-genotype-qr', async (req, res) => {
     if (!qrData) {
       return res.status(400).json({ error: 'Dados do QR não fornecidos' });
     }
+    
+    // ✅ Correction : split('|') au lieu de split('!')
     const parts = qrData.split('|').map(s => s.trim());
+ 
+    // ✅ NOUVEAU FORMAT : 7 campos (numero + 5 dados + assinatura)
     if (parts.length !== 7) {
-      return res.status(400).json({ error: 'Formato de QR inválido (7 champs requis)' });
+      return res.status(400).json({ error: 'Formato de QR inválido' });
     }
-    const hmacRecu = parts.pop();
-    const dataString = parts.join('|');
-    const hmacCalcule = crypto.createHmac('sha256', QR_SECRET_HEALTH).update(dataString).digest('hex');
-    if (hmacCalcule !== hmacRecu) {
+    
+    const signature = parts[6];
+    if (signature !== SECRET_SIGNATURE) {
       return res.status(401).json({ error: 'Assinatura inválida - Certificado não autenticado' });
     }
-    const [numCert, firstName, lastName, genderCode, genotype, bloodGroup] = parts;
-    const gender = genderCode === 'M' ? 'Homme' : 'Femme';
+    
+    // Extrair os dados (ignorar parts[0] que é o número do certificado)
     const userData = {
-      firstName, lastName, gender, genotype, bloodGroup,
-      qrVerified: true, verificationBadge: 'lab'
+      firstName: parts[1],
+      lastName: parts[2],
+      gender: parts[3] === 'M' ? 'Homem' : 'Mulher',
+      genotype: parts[4],
+      bloodGroup: parts[5],
+      qrVerified: true,
+      verificationBadge: 'lab'
     };
+    
     res.json({ success: true, userData });
+    
   } catch (error) {
-    console.error('Erreur validation QR:', error);
-    res.status(500).json({ error: 'Erreur interne du serveur' });
+    console.error('Erro na validação do QR:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
   }
 });
 
@@ -5098,7 +5108,6 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
-
 
 
 
