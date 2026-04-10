@@ -2581,48 +2581,53 @@ async function startRearCamera() {
   } catch(e) { console.error(e); }
 }
 
-function onScanSuccess(decodedText){
+function onScanSuccess(decodedText) {
   if (hasScanned) return;
-  clearTimeout(scanTimeout);
   hasScanned = true;
   html5QrCode.stop().catch(console.log);
-
+  
   fetch('/api/validate-genotype-qr', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ qrData: decodedText })
   })
   .then(response => response.json())
   .then(data => {
     if (data.success) {
-      // ✅ Certificat agréé - remplissage et caméra s'éteint
+      // Pré‑remplir les champs automatiques
       document.getElementById('firstName').value = data.userData.firstName;
       document.getElementById('gender').value = data.userData.gender;
       document.getElementById('genotype').value = data.userData.genotype;
       document.getElementById('bloodGroup').value = data.userData.bloodGroup;
+      
+      // Champs cachés pour indiquer la certification
       document.getElementById('qrVerified').value = 'true';
       document.getElementById('verificationBadge').value = 'lab';
-
+      
+      // Bloquer les champs automatiques (lecture seule)
       document.getElementById('firstName').readOnly = true;
       document.getElementById('gender').disabled = true;
       document.getElementById('genotype').disabled = true;
       document.getElementById('bloodGroup').disabled = true;
-
-      const successDiv = document.getElementById('qr-success');
-      successDiv.style.display = 'block';
-      successDiv.innerHTML = '✅ Certificado válido! Dados preenchidos.';
-      successDiv.style.backgroundColor = '#10b981';
-
-      // Caméra reste éteinte, pas de redémarrage
       
+      // Afficher le badge de certification
+      document.getElementById('verified-badge').style.display = 'block';
+      
+      // Activer le bouton d’inscription
+      document.getElementById('submitBtn').disabled = false;
     } else {
-      // ❌ Certificat non agréé - popup et réactivation caméra
-      alert('❌ Certificado não reconhecido pelo Ministério da Saúde. Assinatura inválida.');
+      alert('Certificado inválido');
       hasScanned = false;
       startRearCamera();
     }
   })
   .catch(err => {
+    console.error(err);
+    alert('Erreur lors de la validation');
+    hasScanned = false;
+    startRearCamera();
+  });
+}  .catch(err => {
     // En cas d'erreur réseau, on ne fait rien (caméra reste éteinte)
     console.error(err);
   });
