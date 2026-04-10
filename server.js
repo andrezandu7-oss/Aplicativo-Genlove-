@@ -2248,7 +2248,7 @@ app.get('/signup-email', (req, res) => {
       }
       
       if (password !== confirmPassword) {
-        showNotify("As senhas não correspondem.", "error");
+        showNotify("As senhas não correspondem.","error");
         return;
       }
       
@@ -2292,7 +2292,7 @@ app.get('/signup-email', (req, res) => {
         if (tempData.success) {
           showNotify("Email validé, continuons !", "success");
           setTimeout(() => {
-            window.location.href = '/charte-engagement?tempId=' + tempData.tempId;
+            window.location.href = '/termos de compromisso?tempId=' + tempData.tempId;
           }, 1000);
         } else {
           showNotify(tempData.error || "Erreur", "error");
@@ -5108,8 +5108,6 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
-
-
 
 
 
