@@ -2565,22 +2565,31 @@ let hasScanned = false;
 let scanTimeout = null;
 let selectedPhotoFile = null;
 
-async function startRearCamera() {
+async function startRearCamera(){
   try {
+    // Arrêter et nettoyer l’ancienne instance si elle existe
+    if (html5QrCode) {
+      await html5QrCode.stop().catch(()=>{});
+      html5QrCode.clear();
+    }
+
     const devices = await Html5Qrcode.getCameras();
     if (!devices || devices.length === 0) return;
+
     let rearCamera = devices.find(d => 
       d.label.toLowerCase().includes("back") || 
       d.label.toLowerCase().includes("rear") ||
       d.label.toLowerCase().includes("environment") ||
-      d.label.toLowerCase().includes("arrière")
+      d.label.toLowerCase().includes("arriere")
     ) || devices[0];
-    
-    const config = { fps: 10, qrbox: 250, aspectRatio: 1.0 };
-    await html5QrCode.start(rearCamera.id, config, onScanSuccess, onScanError);
-  } catch(e) { console.error(e); }
-}
 
+    const config = { fps: 10, qrbox: 250, aspectRatio: 1.0 };
+    html5QrCode = new Html5Qrcode("reader");
+    await html5QrCode.start(rearCamera.id, config, onScanSuccess, onScanError);
+  } catch(e) { 
+    console.error(e); 
+  }
+}
 function onScanSuccess(decodedText) {
   if (hasScanned) return;
   hasScanned = true;
