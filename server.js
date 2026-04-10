@@ -1,14 +1,11 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const session = require('express-session');
-const MongoStore = require('connect-mongo')
-const bcrypt = require('bcrypt');
-const crypto = require('crypto');
+const MongoStore = require('connect-mongo');
 const app = express();
 
 console.log("🚀 Serveur en cours de démarrage...");
 const port = process.env.PORT || 3000;
-
 
 // ====================== CONEXÃO MONGODB ======================
 const mongouRI = process.env.MONGODB_URI || 'mongodb://localhost:27017/genlove';
@@ -47,31 +44,29 @@ app.use(session(sessionConfig));
 // ============================================
 
 const userSchema = new mongoose.Schema({
-  firstName: { type: String, required: true },
-  lastName: { type: String, required: true },
-  gender: String,
-  dob: String,
-  residence: String,
-  region: { type: String, default: "" },
-  genotype: { type: String, enum: ['AA', 'AS', 'SS'] },
-  bloodGroup: String,
-  desireChild: String,
-  photo: String,
-  language: { type: String, default: 'fr' },
-  isVerified: { type: Boolean, default: false },
-  isPublic: { type: Boolean, default: true },
-  blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  blockedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  rejectedRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  createdAt: { type: Date, default: Date.now },
-  qrVerified: { type: Boolean, default: false },
-  verifiedBy: String,
-  verifiedAt: Date,
-  verificationBadge: { type: String, enum: ['none', 'self', 'lab'], default: 'none' },
-  // NOUVEAUX CHAMPS POUR EMAIL ET MOT DE PASSE
-  email: { type: String, unique: true, sparse: true },
-  passwordHash: { type: String }
+    firstName: { type: String, required: true },
+    lastName: { type: String, required: true },
+    gender: String,
+    dob: String,
+    residence: String,
+    region: { type: String, default: "" },
+    genotype: { type: String, enum: ['AA', 'AS', 'SS'] },
+    bloodGroup: String,
+    desireChild: String,
+    photo: String,
+    language: { type: String, default: 'fr' },
+    isVerified: { type: Boolean, default: false },
+    isPublic: { type: Boolean, default: true },
+    blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    blockedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    rejectedRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    createdAt: { type: Date, default: Date.now },
+    qrVerified: { type: Boolean, default: false },
+    verifiedBy: String,
+    verifiedAt: Date,
+    verificationBadge: { type: String, enum: ['none', 'self', 'lab'], default: 'none' }
 });
+
 const messageSchema = new mongoose.Schema({
     senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     receiverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -2033,7 +2028,8 @@ app.get('/', (req, res) => {
             
             <div style="font-size:1.1rem; color:#1a2a44; margin:20px 0 10px;">${t('haveAccount')}</div>
             <a href="/login" class="btn-dark">${t('login')}</a>
-            <a href="/signup-email" class="btn-pink">${t('createAccount')}</a>            <div style="margin-top:30px; font-size:0.9rem; color:#666;">${t('security')}</div>
+            <a href="/charte-engagement" class="btn-pink">${t('createAccount')}</a>
+            <div style="margin-top:30px; font-size:0.9rem; color:#666;">${t('security')}</div>
         </div>
     </div>
     
@@ -2063,267 +2059,61 @@ app.get('/', (req, res) => {
 });
 
 // ============================================
-// PAGE DE CONNEXION - EMAIL ET MOT DE PASSE
+// LOGIN
 // ============================================
 app.get('/login', (req, res) => {
-  const t = req.t;
-  
-  res.send(`<!DOCTYPE html>
+    const t = req.t;
+    res.send(`<!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-  <title>${t('appName')} - ${t('loginTitle')}</title>
-  ${styles}
-  ${notifyScript}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>${t('appName')} - ${t('loginTitle')}</title>
+    ${styles}
+    ${notifyScript}
 </head>
 <body>
-  <div class="app-shell">
-    <div class="page-white">
-      <h2 style="text-align: center;">${t('loginTitle')}</h2>
-      <p style="text-align: center; margin-bottom: 20px;">Connectez-vous avec votre email et mot de passe</p>
-      
-      <form id="loginForm">
-        <div class="input-label">Email</div>
-        <input type="email" id="email" class="input-box" placeholder="votre@email.com" required>
-        
-        <div class="input-label">Mot de passe</div>
-<div style="position: relative;">
-  <input type="password" id="password" class="input-box" placeholder="••••••" required style="padding-right: 45px;">
-  <span onclick="togglePassword('password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
-</div>
-        
-        <button type="submit" class="btn-pink">${t('login')}</button>
-      </form>
-      
-      <div style="text-align: center; margin-top: 20px;">
-        <a href="/signup-email" class="back-link">Pas encore de compte ? Créer un compte</a>
-      </div>
-      
-      <a href="/" class="back-link">← ${t('backHome')}</a>
+    <div class="app-shell">
+        <div class="page-white">
+            <h2>${t('loginTitle')}</h2>
+            <p style="font-size: 1.2rem; margin: 20px 0;">${t('enterName')}</p>
+            <form id="loginForm">
+                <input type="text" id="firstName" class="input-box" placeholder="${t('yourName')}" required>
+                <button type="submit" class="btn-pink">${t('login')}</button>
+            </form>
+            <a href="/" class="back-link">← ${t('backHome')}</a>
+        </div>
     </div>
-  </div>
-  
-  <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
-  
-  <script>
-    function showNotify(msg, type) {
-      const notify = document.getElementById('genlove-notify');
-      const msgSpan = document.getElementById('notify-msg');
-      msgSpan.innerText = msg;
-      notify.style.backgroundColor = type === 'success' ? '#4CAF50' : '#dc3545';
-      notify.classList.add('show');
-      setTimeout(() => notify.classList.remove('show'), 3000);
-    }
-    
-    document.getElementById('loginForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      
-      const email = document.getElementById('email').value;
-      const password = document.getElementById('password').value;
-      
-      if (!email || !password) {
-        showNotify("Veuillez remplir tous les champs", "error");
-        return;
-      }
-      
-      showNotify("Connexion en cours...", "info");
-      
-      try {
-        const response = await fetch('/api/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password })
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const firstName = document.getElementById('firstName').value;
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({firstName})
+            });
+            if (res.ok) window.location.href = '/profile';
+            else alert('${t('nameNotFound')}');
         });
         
-        const data = await response.json();
-        
-        if (data.success) {
-          showNotify("✅ Connexion réussie !", "success");
-          setTimeout(() => window.location.href = '/profile', 1000);
-        } else {
-          showNotify(data.error || "❌ Échec de connexion", "error");
-        }
-      } catch(e) {
-        showNotify("❌ Erreur réseau", "error");
-      }
-    });
-function togglePassword(fieldId) {
-  const field = document.getElementById(fieldId);
-  if (field.type === "password") {
-    field.type = "text";
-  } else {
-    field.type = "password";
-  }
-}
-  </script>
+        document.getElementById('firstName').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                document.getElementById('loginForm').requestSubmit();
+            }
+        });
+    </script>
 </body>
 </html>`);
 });
 
-// ============================================
-// PAGE D'INSCRIPTION - EMAIL ET MOT DE PASSE
-// ============================================
-app.get('/signup-email', (req, res) => {
-  const t = req.t;
-  
-  res.send(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-  <title>${t('appName')} - Créer mon compte</title>
-  ${styles}
-  ${notifyScript}
-  <style>
-    .info-message {
-      background: #e3f2fd;
-      padding: 15px;
-      border-radius: 15px;
-      margin: 20px 0;
-      border-left: 5px solid #2196f3;
-    }
-    .info-message p {
-      margin: 0;
-      font-size: 0.9rem;
-      color: #0d47a1;
-    }
-  </style>
-</head>
-<body>
-  <div class="app-shell">
-    <div class="page-white">
-      <h2 style="color:#ff416c;">Créer mon compte</h2>
-      <p style="margin-bottom: 20px;">Veuillez entrer votre email et mot de passe pour créer votre compte Genlove.</p>
-      
-      <div class="info-message">
-        <p>📧 Un email de vérification vous sera envoyé après validation de la charte d'honneur.</p>
-      </div>
-      
-      <form id="signupForm">
-        <div class="input-label">Email</div>
-        <input type="email" id="email" class="input-box" placeholder="votre@email.com" required>
-        
-        <div class="input-label">Mot de passe</div>
-<div style="position: relative;">
-  <input type="password" id="password" class="input-box" placeholder="•••••• (minimum 6 caractères)" required style="padding-right: 45px;">
-  <span onclick="togglePassword('password')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
-</div>
-
-<div class="input-label">Confirmer le mot de passe</div>
-<div style="position: relative;">
-  <input type="password" id="confirmPassword" class="input-box" placeholder="••••••" required style="padding-right: 45px;">
-  <span onclick="togglePassword('confirmPassword')" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 1.2rem;">👁️</span>
-</div>        
-        <button type="submit" class="btn-pink">Continuer vers la charte →</button>
-      </form>
-      
-      <a href="/" class="back-link">← Retour à l'accueil</a>
-    </div>
-  </div>
-  
-  <div id="genlove-notify"><span>🔔</span> <span id="notify-msg"></span></div>
-  
-  <script>
-    function showNotify(msg, type) {
-      const notify = document.getElementById('genlove-notify');
-      const msgSpan = document.getElementById('notify-msg');
-      msgSpan.innerText = msg;
-      notify.style.backgroundColor = type === 'success' ? '#4CAF50' : '#dc3545';
-      notify.classList.add('show');
-      setTimeout(() => notify.classList.remove('show'), 3000);
-    }
-    
-    document.getElementById('signupForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      
-      const email = document.getElementById('email').value;
-      const password = document.getElementById('password').value;
-      const confirmPassword = document.getElementById('confirmPassword').value;
-      
-      if (!email || !password) {
-        showNotify("Veuillez remplir tous les champs", "error");
-        return;
-      }
-      
-      if (password !== confirmPassword) {
-        showNotify("Les mots de passe ne correspondent pas", "error");
-        return;
-      }
-      
-      if (password.length < 6) {
-        showNotify("Le mot de passe doit contenir au moins 6 caractères", "error");
-        return;
-      }
-      
-      // Vérification format email
-      const emailRegex = /^[^\\s@]+@([^\\s@]+\\.)+[^\\s@]+$/;
-      if (!emailRegex.test(email)) {
-        showNotify("Format d'email invalide", "error");
-        return;
-      }
-      
-      showNotify("Vérification en cours...", "info");
-      
-      try {
-        // Vérifier si l'email existe déjà
-        const checkRes = await fetch('/api/check-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email })
-        });
-        const checkData = await checkRes.json();
-        
-        if (checkData.exists) {
-          showNotify("Cet email est déjà utilisé", "error");
-          return;
-        }
-        
-        // Stocker les données en session temporaire
-        const tempRes = await fetch('/api/temp-signup', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password })
-        });
-        
-        const tempData = await tempRes.json();
-        
-        if (tempData.success) {
-          showNotify("Email validé, continuons !", "success");
-          setTimeout(() => {
-            window.location.href = '/charte-engagement?tempId=' + tempData.tempId;
-          }, 1000);
-        } else {
-          showNotify(tempData.error || "Erreur", "error");
-        }
-      } catch(e) {
-        showNotify("Erreur réseau", "error");
-        console.error(e);
-      }
-    });
-
-function togglePassword(fieldId) {
-  const field = document.getElementById(fieldId);
-  if (field.type === "password") {
-    field.type = "text";
-  } else {
-    field.type = "password";
-  }
-}
-  </script>
-</body>
-</html>`);
-});
 // ============================================
 // CHARTE D'ENGAGEMENT
 // ============================================
 app.get('/charte-engagement', (req, res) => {
-  const t = req.t;
-  const tempId = req.query.tempId;
-  
-  if (tempId) {
-    req.session.tempSignupId = tempId;
-  }    res.send(`<!DOCTYPE html>
+    const t = req.t;
+    res.send(`<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -2889,60 +2679,39 @@ app.get('/signup-manual', (req, res) => {
         }
         
         document.getElementById('signupForm').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  document.getElementById('loader').style.display = 'flex';
-  
-  // ===== RÉCUPÉRER L'EMAIL TEMPORAIRE =====
-  let tempEmail = null;
-  let tempPasswordHash = null;
-  
-  try {
-    const tempRes = await fetch('/api/get-temp-signup');
-    const tempData = await tempRes.json();
-    
-    if (tempData.email) {
-      tempEmail = tempData.email;
-      tempPasswordHash = tempData.passwordHash;
-      console.log("✅ Email temporaire récupéré:", tempEmail);
-    } else {
-      console.log("⚠️ Aucun email temporaire trouvé");
-    }
-  } catch(e) {
-    console.error("Erreur récupération email temporaire:", e);
-  }
-  // ===== FIN RÉCUPÉRATION =====
-  
-  const day = document.querySelector('select[name="day"]').value;
-  const month = document.querySelector('select[name="month"]').value;
-  const year = document.querySelector('select[name="year"]').value;
-  
-  if (!day || !month || !year) {
-    alert('Date de naissance requise');
-    document.getElementById('loader').style.display = 'none';
-    return;
-  }
-  
-  const dob = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
-  
-  const userData = {
-    firstName: document.getElementById('firstName').value,
-    lastName: document.getElementById('lastName').value,
-    gender: document.getElementById('gender').value,
-    dob: dob,
-    residence: document.getElementById('residence').value,
-    region: document.getElementById('region').value,
-    genotype: document.getElementById('genotype').value,
-    bloodGroup: document.getElementById('bloodType').value + document.getElementById('bloodRh').value,
-    desireChild: document.getElementById('desireChild').value,
-    photo: photoBase64 || "",
-    language: 'fr',
-    isPublic: true,
-    qrVerified: false,
-    verificationBadge: 'self',
-    // ===== AJOUTER EMAIL ET MOT DE PASSE =====
-    email: tempEmail,
-    passwordHash: tempPasswordHash
-  };            
+            e.preventDefault();
+            
+            document.getElementById('loader').style.display = 'flex';
+            
+            const day = document.querySelector('select[name="day"]').value;
+            const month = document.querySelector('select[name="month"]').value;
+            const year = document.querySelector('select[name="year"]').value;
+            
+            if (!day || !month || !year) {
+                alert('${t('dob')} ${t('required')}');
+                document.getElementById('loader').style.display = 'none';
+                return;
+            }
+            
+            const dob = year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
+            
+            const userData = {
+                firstName: document.getElementById('firstName').value,
+                lastName: document.getElementById('lastName').value,
+                gender: document.getElementById('gender').value,
+                dob: dob,
+                residence: document.getElementById('residence').value,
+                region: document.getElementById('region').value,
+                genotype: document.getElementById('genotype').value,
+                bloodGroup: document.getElementById('bloodType').value + document.getElementById('bloodRh').value,
+                desireChild: document.getElementById('desireChild').value,
+                photo: photoBase64 || "",
+                language: '${req.lang}',
+                isPublic: true,
+                qrVerified: false,
+                verificationBadge: 'self'
+            };
+            
             try {
                 const res = await fetch('/api/register', {
                     method: 'POST',
@@ -4523,60 +4292,35 @@ app.get('/logout-success', (req, res) => {
 // ============================================
 
 app.post('/api/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email et mot de passe requis" });
+    try {
+        const user = await User.findOne({ firstName: req.body.firstName }).sort({ createdAt: -1 });
+        if (!user) return res.status(404).json({ error: "Utilisateur non trouvé" });
+        
+        req.session.userId = user._id;
+        req.session.isVerified = user.isVerified;
+        await new Promise(resolve => req.session.save(resolve));
+        
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
     }
-    
-    const user = await User.findOne({ email });
-    
-    if (!user || !user.passwordHash) {
-      return res.status(401).json({ error: "Email ou mot de passe incorrect" });
-    }
-    
-    const isValid = await bcrypt.compare(password, user.passwordHash);
-    
-    if (!isValid) {
-      return res.status(401).json({ error: "Email ou mot de passe incorrect" });
-    }
-    
-    req.session.userId = user._id;
-    req.session.isVerified = user.isVerified;
-    await new Promise(resolve => req.session.save(resolve));
-    
-    res.json({ success: true, userId: user._id, firstName: user.firstName });
-    
-  } catch(e) {
-    console.error("Erreur login:", e);
-    res.status(500).json({ error: "Erreur lors de la connexion" });
-  }
 });
+
 app.post('/api/register', async (req, res) => {
-  try {
-    const userData = req.body;
-    
-    // Si l'email existe déjà, on ne fait rien de spécial
-    const user = new User(userData);
-    await user.save();
-    
-    req.session.userId = user._id;
-    req.session.isVerified = false;
-    await new Promise(resolve => req.session.save(resolve));
-    
-    console.log("✅ Utilisateur créé:", { 
-      id: user._id, 
-      email: user.email, 
-      hasPassword: !!user.passwordHash 
-    });
-    
-    res.json({ success: true });
-  } catch(e) {
-    console.error("Erreur register:", e);
-    res.status(500).json({ error: e.message });
-  }
+    try {
+        const user = new User(req.body);
+        await user.save();
+        
+        req.session.userId = user._id;
+        req.session.isVerified = false;
+        await new Promise(resolve => req.session.save(resolve));
+        
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
 });
+
 app.post('/api/requests', requireAuth, async (req, res) => {
     try {
         const { receiverId } = req.body;
@@ -4795,65 +4539,6 @@ app.post('/api/validate-genotype-qr', async (req, res) => {
 });
 
 // ============================================
-// API - VÉRIFICATION EMAIL
-// ============================================
-app.post('/api/check-email', async (req, res) => {
-  try {
-    const { email } = req.body;
-    const existingUser = await User.findOne({ email });
-    res.json({ exists: !!existingUser });
-  } catch(error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Stockage temporaire des données email/password
-const tempSignups = new Map();
-
-app.post('/api/temp-signup', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ error: "Cet email est déjà utilisé" });
-    }
-    
-    const tempId = crypto.randomBytes(16).toString('hex');
-    
-    tempSignups.set(tempId, {
-      email,
-      passwordHash: await bcrypt.hash(password, 10),
-      expires: Date.now() + 30 * 60 * 1000
-    });
-    
-    res.json({ success: true, tempId });
-  } catch(error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-app.get('/api/get-temp-signup', async (req, res) => {
-  try {
-    const tempId = req.session.tempSignupId;
-    if (!tempId || !tempSignups.has(tempId)) {
-      return res.json({ email: null, passwordHash: null });
-    }
-    
-    const tempData = tempSignups.get(tempId);
-    if (tempData.expires < Date.now()) {
-      tempSignups.delete(tempId);
-      return res.json({ email: null, passwordHash: null });
-    }
-    
-    res.json({ 
-      email: tempData.email,
-      passwordHash: tempData.passwordHash
-    });
-  } catch(error) {
-    res.json({ email: null, passwordHash: null });
-  }
-});
-// ============================================
 // DÉMARRAGE
 // ============================================
 app.listen(port, '0.0.0.0', () => {
@@ -4881,12 +4566,6 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
-
-
-
-
-
-
 
 
 
