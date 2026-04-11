@@ -2565,78 +2565,64 @@ let hasScanned = false;
 let scanTimeout = null;
 let selectedPhotoFile = null;
 
-async function startRearCamera(){
+async function startRearCamera() {
   try {
-    // Arrêter et nettoyer l’ancienne instance si elle existe
-    if (html5QrCode) {
-      await html5QrCode.stop().catch(()=>{});
-      html5QrCode.clear();
-    }
-
     const devices = await Html5Qrcode.getCameras();
     if (!devices || devices.length === 0) return;
-
     let rearCamera = devices.find(d => 
       d.label.toLowerCase().includes("back") || 
       d.label.toLowerCase().includes("rear") ||
       d.label.toLowerCase().includes("environment") ||
-      d.label.toLowerCase().includes("arriere")
+      d.label.toLowerCase().includes("arrière")
     ) || devices[0];
-
+    
     const config = { fps: 10, qrbox: 250, aspectRatio: 1.0 };
-    html5QrCode = new Html5Qrcode("reader");
     await html5QrCode.start(rearCamera.id, config, onScanSuccess, onScanError);
-  } catch(e) { 
-    console.error(e); 
-  }
+  } catch(e) { console.error(e); }
 }
-function onScanSuccess(decodedText) {
+
+function onScanSuccess(decodedText){
   if (hasScanned) return;
+  clearTimeout(scanTimeout);
   hasScanned = true;
   html5QrCode.stop().catch(console.log);
-  
+
   fetch('/api/validate-genotype-qr', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ qrData: decodedText })
   })
   .then(response => response.json())
   .then(data => {
     if (data.success) {
-      // Pré‑remplir les champs automatiques
+      // ✅ Certificat agréé - remplissage et caméra s'éteint
       document.getElementById('firstName').value = data.userData.firstName;
       document.getElementById('gender').value = data.userData.gender;
       document.getElementById('genotype').value = data.userData.genotype;
       document.getElementById('bloodGroup').value = data.userData.bloodGroup;
-      
-      // Champs cachés pour indiquer la certification
       document.getElementById('qrVerified').value = 'true';
       document.getElementById('verificationBadge').value = 'lab';
-      
-      // Bloquer les champs automatiques (lecture seule)
+
       document.getElementById('firstName').readOnly = true;
       document.getElementById('gender').disabled = true;
       document.getElementById('genotype').disabled = true;
       document.getElementById('bloodGroup').disabled = true;
+
+      const successDiv = document.getElementById('qr-success');
+      successDiv.style.display = 'block';
+      successDiv.innerHTML = '✅ Certificado válido! Dados preenchidos.';
+      successDiv.style.backgroundColor = '#10b981';
+
+      // Caméra reste éteinte, pas de redémarrage
       
-      // Afficher le badge de certification
-      document.getElementById('verified-badge').style.display = 'block';
-      
-      // Activer le bouton d’inscription
-      document.getElementById('submitBtn').disabled = false;
     } else {
-      alert('Certificado inválido');
+      // ❌ Certificat non agréé - popup et réactivation caméra
+      alert('❌ Certificado não reconhecido pelo Ministério da Saúde. Assinatura inválida.');
       hasScanned = false;
       startRearCamera();
     }
   })
   .catch(err => {
-    console.error(err);
-    alert('Erreur lors de la validation');
-    hasScanned = false;
-    startRearCamera();
-  });
-}  .catch(err => {
     // En cas d'erreur réseau, on ne fait rien (caméra reste éteinte)
     console.error(err);
   });
@@ -4915,7 +4901,6 @@ app.delete('/api/delete-account', requireAuth, async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
-
 // ================ VALIDAÇÃO DO QR DO CERTIFICADO GENÓTIPO ================
 app.post('/api/validate-genotype-qr', async (req, res) => {
   try {
@@ -4923,38 +4908,29 @@ app.post('/api/validate-genotype-qr', async (req, res) => {
     if (!qrData) {
       return res.status(400).json({ error: 'Dados do QR não fornecidos' });
     }
-    
-    // ✅ Correction : split('|') au lieu de split('!')
     const parts = qrData.split('|').map(s => s.trim());
-    
-    // ✅ NOUVEAU FORMAT : 7 campos (numero + 5 dados + assinatura)
     if (parts.length !== 7) {
-      return res.status(400).json({ error: 'Formato de QR inválido' });
+      return res.status(400).json({ error: 'Formato de QR inválido (7 champs requis)' });
     }
-    
-    const signature = parts[6];
-    if (signature !== SECRET_SIGNATURE) {
+    const hmacRecu = parts.pop();
+    const dataString = parts.join('|');
+    const hmacCalcule = crypto.createHmac('sha256', QR_SECRET_HEALTH).update(dataString).digest('hex');
+    if (hmacCalcule !== hmacRecu) {
       return res.status(401).json({ error: 'Assinatura inválida - Certificado não autenticado' });
     }
-    
-    // Extrair os dados (ignorar parts[0] que é o número do certificado)
+    const [numCert, firstName, lastName, genderCode, genotype, bloodGroup] = parts;
+    const gender = genderCode === 'M' ? 'Homme' : 'Femme';
     const userData = {
-      firstName: parts[1],
-      lastName: parts[2],
-      gender: parts[3] === 'M' ? 'Homem' : 'Mulher',
-      genotype: parts[4],
-      bloodGroup: parts[5],
-      qrVerified: true,
-      verificationBadge: 'lab'
+      firstName, lastName, gender, genotype, bloodGroup,
+      qrVerified: true, verificationBadge: 'lab'
     };
-    
     res.json({ success: true, userData });
-    
   } catch (error) {
-    console.error('Erro na validação do QR:', error);
-    res.status(500).json({ error: 'Erro interno do servidor' });
+    console.error('Erreur validation QR:', error);
+    res.status(500).json({ error: 'Erreur interne du serveur' });
   }
 });
+
 // ============================================
 // API - VÉRIFICATION EMAIL
 // ============================================
@@ -5122,6 +5098,9 @@ process.on('SIGINT', () => {
         process.exit(0);
     });
 });
+
+
+
 
 
 
